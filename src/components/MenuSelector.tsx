@@ -159,17 +159,17 @@ export default function MenuSelector({ onAddItem }: MenuSelectorProps) {
                   <div className="flex items-center gap-3">
                     <button
                       onClick={() => updateQuantity(item.id, -1)}
-                      className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center"
+                      className="w-10 h-10 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-md transition-all"
                       disabled={qty === 0}
                     >
-                      <FiMinus />
+                      <FiMinus size={18} />
                     </button>
-                    <span className="text-xl font-bold w-8 text-center">{qty}</span>
+                    <span className={`text-2xl font-bold w-10 text-center ${qty > 0 ? 'text-green-600' : 'text-gray-400'}`}>{qty}</span>
                     <button
                       onClick={() => updateQuantity(item.id, 1)}
-                      className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center"
+                      className="w-10 h-10 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center justify-center shadow-md transition-all"
                     >
-                      <FiPlus />
+                      <FiPlus size={18} />
                     </button>
                   </div>
 
