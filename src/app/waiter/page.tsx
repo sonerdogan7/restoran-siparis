@@ -219,8 +219,8 @@ export default function WaiterPage() {
             <button
               onClick={() => {
                 setView('tables');
+                // Sepeti silme, masa secildiginde geri yuklenecek
                 setCurrentTable(null);
-                clearCart();
               }}
               className="p-2 hover:bg-gray-100 rounded-lg"
             >

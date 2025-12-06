@@ -98,7 +98,12 @@ function CartItem({
       <div className="flex justify-between items-start">
         <div className="flex-1">
           <h4 className="font-medium text-gray-800 text-sm">{item.menuItem.name}</h4>
-          <p className="text-green-600 text-sm">{item.menuItem.price} ₺</p>
+          <p className="text-green-600 text-sm">{item.menuItem.price} TL</p>
+          {item.notes && (
+            <p className="text-xs text-yellow-700 bg-yellow-50 px-2 py-1 rounded mt-1">
+              Not: {item.notes}
+            </p>
+          )}
         </div>
         <button
           onClick={() => onRemove(item.id)}
@@ -125,7 +130,7 @@ function CartItem({
           </button>
         </div>
         <span className="font-semibold text-gray-700">
-          {item.menuItem.price * item.quantity} ₺
+          {item.menuItem.price * item.quantity} TL
         </span>
       </div>
     </div>

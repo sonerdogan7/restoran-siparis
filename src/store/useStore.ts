@@ -21,12 +21,15 @@ interface AppState {
   addOrder: (order: Order) => void;
   updateOrder: (orderId: string, data: Partial<Order>) => void;
 
-  // Current order items (cart)
+  // Cart per table (masa bazli sepet)
+  tableCarts: Record<string, OrderItem[]>;
   cartItems: OrderItem[];
   addToCart: (item: MenuItem, quantity?: number, notes?: string) => void;
   removeFromCart: (itemId: string) => void;
   updateCartItem: (itemId: string, quantity: number) => void;
   clearCart: () => void;
+  loadCartForTable: (tableId: string) => void;
+  saveCartForTable: (tableId: string) => void;
 
   // UI State
   selectedCategory: string | null;
@@ -52,7 +55,25 @@ export const useStore = create<AppState>((set, get) => ({
 
   // Current table
   currentTable: null,
-  setCurrentTable: (table) => set({ currentTable: table }),
+  setCurrentTable: (table) => {
+    const state = get();
+    // Mevcut masanin sepetini kaydet
+    if (state.currentTable && state.cartItems.length > 0) {
+      set((s) => ({
+        tableCarts: {
+          ...s.tableCarts,
+          [state.currentTable!.id]: s.cartItems
+        }
+      }));
+    }
+    // Yeni masanin sepetini yukle
+    if (table) {
+      const savedCart = state.tableCarts[table.id] || [];
+      set({ currentTable: table, cartItems: savedCart });
+    } else {
+      set({ currentTable: table });
+    }
+  },
 
   // Active orders
   activeOrders: [],
@@ -67,6 +88,7 @@ export const useStore = create<AppState>((set, get) => ({
     })),
 
   // Cart
+  tableCarts: {},
   cartItems: [],
   addToCart: (item, quantity = 1, notes) => {
     const existingIndex = get().cartItems.findIndex(
@@ -92,18 +114,77 @@ export const useStore = create<AppState>((set, get) => ({
       };
       set((state) => ({ cartItems: [...state.cartItems, newItem] }));
     }
+
+    // Otomatik olarak masa sepetini guncelle
+    const currentTable = get().currentTable;
+    if (currentTable) {
+      set((state) => ({
+        tableCarts: {
+          ...state.tableCarts,
+          [currentTable.id]: state.cartItems
+        }
+      }));
+    }
   },
-  removeFromCart: (itemId) =>
+  removeFromCart: (itemId) => {
     set((state) => ({
       cartItems: state.cartItems.filter((ci) => ci.id !== itemId),
-    })),
-  updateCartItem: (itemId, quantity) =>
+    }));
+    // Masa sepetini guncelle
+    const currentTable = get().currentTable;
+    if (currentTable) {
+      set((state) => ({
+        tableCarts: {
+          ...state.tableCarts,
+          [currentTable.id]: state.cartItems
+        }
+      }));
+    }
+  },
+  updateCartItem: (itemId, quantity) => {
     set((state) => ({
       cartItems: state.cartItems.map((ci) =>
         ci.id === itemId ? { ...ci, quantity } : ci
       ),
-    })),
-  clearCart: () => set({ cartItems: [] }),
+    }));
+    // Masa sepetini guncelle
+    const currentTable = get().currentTable;
+    if (currentTable) {
+      set((state) => ({
+        tableCarts: {
+          ...state.tableCarts,
+          [currentTable.id]: state.cartItems
+        }
+      }));
+    }
+  },
+  clearCart: () => {
+    const currentTable = get().currentTable;
+    if (currentTable) {
+      // Masa sepetini de temizle
+      set((state) => ({
+        cartItems: [],
+        tableCarts: {
+          ...state.tableCarts,
+          [currentTable.id]: []
+        }
+      }));
+    } else {
+      set({ cartItems: [] });
+    }
+  },
+  loadCartForTable: (tableId) => {
+    const savedCart = get().tableCarts[tableId] || [];
+    set({ cartItems: savedCart });
+  },
+  saveCartForTable: (tableId) => {
+    set((state) => ({
+      tableCarts: {
+        ...state.tableCarts,
+        [tableId]: state.cartItems
+      }
+    }));
+  },
 
   // UI State
   selectedCategory: null,

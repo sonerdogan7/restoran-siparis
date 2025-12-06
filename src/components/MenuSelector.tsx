@@ -3,8 +3,7 @@
 import { useState } from 'react';
 import { menuData } from '@/lib/menuData';
 import { MenuItem } from '@/types';
-import { useStore } from '@/store/useStore';
-import { FiPlus, FiMinus, FiChevronRight } from 'react-icons/fi';
+import { FiPlus, FiMinus, FiChevronRight, FiEdit3 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 
 interface MenuSelectorProps {
@@ -15,11 +14,14 @@ export default function MenuSelector({ onAddItem }: MenuSelectorProps) {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSubCategory, setSelectedSubCategory] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [showNoteInput, setShowNoteInput] = useState<string | null>(null);
 
   const category = menuData.find(c => c.id === selectedCategory);
   const subCategory = category?.subCategories.find(s => s.id === selectedSubCategory);
 
   const getQuantity = (itemId: string) => quantities[itemId] || 0;
+  const getNote = (itemId: string) => notes[itemId] || '';
 
   const updateQuantity = (itemId: string, delta: number) => {
     setQuantities(prev => ({
@@ -28,20 +30,42 @@ export default function MenuSelector({ onAddItem }: MenuSelectorProps) {
     }));
   };
 
+  const updateNote = (itemId: string, note: string) => {
+    setNotes(prev => ({
+      ...prev,
+      [itemId]: note
+    }));
+  };
+
   const handleAddItem = (item: MenuItem) => {
     const qty = getQuantity(item.id);
+    const note = getNote(item.id);
     if (qty > 0) {
-      onAddItem(item, qty);
+      onAddItem(item, qty, note || undefined);
       setQuantities(prev => ({ ...prev, [item.id]: 0 }));
+      setNotes(prev => ({ ...prev, [item.id]: '' }));
+      setShowNoteInput(null);
       toast.success(`${qty}x ${item.name} eklendi`);
     }
   };
+
+  const quickNotes = [
+    'Az pismiş',
+    'Orta pismiş',
+    'Cok pismiş',
+    'Acisiz',
+    'Extra acili',
+    'Sogansiz',
+    'Buzlu',
+    'Buzsuz',
+    'Limonlu'
+  ];
 
   // Category selection view
   if (!selectedCategory) {
     return (
       <div className="p-4">
-        <h3 className="text-lg font-semibold text-gray-700 mb-4">Menü</h3>
+        <h3 className="text-lg font-semibold text-gray-700 mb-4">Menu</h3>
         <div className="space-y-3">
           {menuData.map(cat => (
             <button
@@ -85,7 +109,7 @@ export default function MenuSelector({ onAddItem }: MenuSelectorProps) {
             >
               <span className="font-medium text-gray-700">{sub.name}</span>
               <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-400">{sub.items.length} ürün</span>
+                <span className="text-sm text-gray-400">{sub.items.length} urun</span>
                 <FiChevronRight className="text-gray-400" />
               </div>
             </button>
@@ -109,6 +133,9 @@ export default function MenuSelector({ onAddItem }: MenuSelectorProps) {
         <div className="space-y-3">
           {subCategory.items.map(item => {
             const qty = getQuantity(item.id);
+            const note = getNote(item.id);
+            const isNoteOpen = showNoteInput === item.id;
+
             return (
               <div
                 key={item.id}
@@ -117,7 +144,7 @@ export default function MenuSelector({ onAddItem }: MenuSelectorProps) {
                 <div className="flex justify-between items-start mb-3">
                   <div>
                     <h4 className="font-medium text-gray-800">{item.name}</h4>
-                    <p className="text-green-600 font-semibold">{item.price} ₺</p>
+                    <p className="text-green-600 font-semibold">{item.price} TL</p>
                   </div>
                   <span className={`text-xs px-2 py-1 rounded ${
                     item.destination === 'bar'
@@ -128,7 +155,7 @@ export default function MenuSelector({ onAddItem }: MenuSelectorProps) {
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-3">
                     <button
                       onClick={() => updateQuantity(item.id, -1)}
@@ -147,14 +174,71 @@ export default function MenuSelector({ onAddItem }: MenuSelectorProps) {
                   </div>
 
                   {qty > 0 && (
-                    <button
-                      onClick={() => handleAddItem(item)}
-                      className="px-4 py-2 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition"
-                    >
-                      Ekle
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setShowNoteInput(isNoteOpen ? null : item.id)}
+                        className={`p-2 rounded-lg ${note ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'}`}
+                        title="Not ekle"
+                      >
+                        <FiEdit3 size={18} />
+                      </button>
+                      <button
+                        onClick={() => handleAddItem(item)}
+                        className="px-4 py-2 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition"
+                      >
+                        Ekle
+                      </button>
+                    </div>
                   )}
                 </div>
+
+                {/* Not girisi */}
+                {qty > 0 && isNoteOpen && (
+                  <div className="mt-3 pt-3 border-t">
+                    <p className="text-sm text-gray-600 mb-2">Not ekle:</p>
+
+                    {/* Hizli notlar */}
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {quickNotes.map(qNote => (
+                        <button
+                          key={qNote}
+                          onClick={() => updateNote(item.id, note ? `${note}, ${qNote}` : qNote)}
+                          className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded-full hover:bg-gray-200"
+                        >
+                          {qNote}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Manuel not girisi */}
+                    <input
+                      type="text"
+                      value={note}
+                      onChange={(e) => updateNote(item.id, e.target.value)}
+                      placeholder="Ozel not yazin..."
+                      className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+
+                    {note && (
+                      <div className="mt-2 flex items-center justify-between">
+                        <span className="text-xs text-gray-500">Not: {note}</span>
+                        <button
+                          onClick={() => updateNote(item.id, '')}
+                          className="text-xs text-red-500"
+                        >
+                          Temizle
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Not gosterimi (kapali durumda) */}
+                {qty > 0 && !isNoteOpen && note && (
+                  <div className="mt-2 text-xs text-yellow-700 bg-yellow-50 px-2 py-1 rounded">
+                    Not: {note}
+                  </div>
+                )}
               </div>
             );
           })}
