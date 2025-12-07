@@ -21,7 +21,7 @@ import {
   Timestamp
 } from 'firebase/firestore';
 import toast, { Toaster } from 'react-hot-toast';
-import { FiArrowLeft, FiList, FiGrid, FiLogOut, FiX } from 'react-icons/fi';
+import { FiArrowLeft, FiList, FiGrid, FiLogOut, FiX, FiStar } from 'react-icons/fi';
 
 const INITIAL_TABLES: Table[] = Array.from({ length: 20 }, (_, i) => ({
   id: `table-${i + 1}`,
@@ -49,6 +49,12 @@ export default function WaiterPage() {
   const [view, setView] = useState<'tables' | 'order' | 'myOrders'>('tables');
   const [showGuestModal, setShowGuestModal] = useState(false);
   const [pendingTable, setPendingTable] = useState<Table | null>(null);
+  const [tableTab, setTableTab] = useState<'all' | 'myTables'>('all');
+
+  // Garsonun aktif masalari (dolu olan ve garsonun actigi masalar)
+  const myTables = tables.filter(t =>
+    t.status === 'occupied' && t.waiter === (user?.name || 'Garson')
+  );
 
   // Initialize tables and listen for changes
   useEffect(() => {
@@ -252,7 +258,57 @@ export default function WaiterPage() {
 
       {/* Tables View */}
       {view === 'tables' && (
-        <TableGrid tables={tables} onTableSelect={handleTableSelect} />
+        <>
+          {/* Tab Secimi */}
+          <div className="bg-white border-b px-4 py-2">
+            <div className="flex gap-2">
+              <button
+                onClick={() => setTableTab('all')}
+                className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all ${
+                  tableTab === 'all'
+                    ? 'bg-indigo-500 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <FiGrid className="inline mr-2" />
+                Tum Masalar
+              </button>
+              <button
+                onClick={() => setTableTab('myTables')}
+                className={`flex-1 py-2 px-4 rounded-lg font-medium transition-all relative ${
+                  tableTab === 'myTables'
+                    ? 'bg-yellow-500 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <FiStar className="inline mr-2" />
+                Masalarim
+                {myTables.length > 0 && (
+                  <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                    tableTab === 'myTables' ? 'bg-yellow-600' : 'bg-yellow-500 text-white'
+                  }`}>
+                    {myTables.length}
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Masa Listesi */}
+          {tableTab === 'all' ? (
+            <TableGrid tables={tables} onTableSelect={handleTableSelect} />
+          ) : (
+            myTables.length > 0 ? (
+              <TableGrid tables={myTables} onTableSelect={handleTableSelect} />
+            ) : (
+              <div className="text-center py-20">
+                <FiStar className="mx-auto text-gray-300" size={64} />
+                <p className="mt-4 text-gray-500 text-lg">Henuz aktif masaniz yok</p>
+                <p className="text-gray-400 text-sm">Bir masa actiginizda burada gorunecek</p>
+              </div>
+            )
+          )}
+        </>
       )}
 
       {/* Order View */}
