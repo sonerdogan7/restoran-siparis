@@ -8,6 +8,7 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
+  deleteField,
   query,
   where,
   onSnapshot,
@@ -169,10 +170,34 @@ export const updateTable = async (
   tableId: string,
   data: Partial<Table>
 ): Promise<void> => {
-  await updateDoc(doc(db, 'businesses', businessId, 'tables', tableId), {
-    ...data,
-    ...(data.openedAt ? { openedAt: serverTimestamp() } : {})
-  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const updateData: any = {};
+
+  // Her alan icin kontrol et - undefined ise deleteField kullan
+  if (data.status !== undefined) updateData.status = data.status;
+  if (data.guestCount !== undefined) updateData.guestCount = data.guestCount;
+  if (data.number !== undefined) updateData.number = data.number;
+
+  // waiter, waiterId, openedAt alanlari - undefined gonderilirse sil
+  if (data.waiter === undefined && 'waiter' in data) {
+    updateData.waiter = deleteField();
+  } else if (data.waiter !== undefined) {
+    updateData.waiter = data.waiter;
+  }
+
+  if (data.waiterId === undefined && 'waiterId' in data) {
+    updateData.waiterId = deleteField();
+  } else if (data.waiterId !== undefined) {
+    updateData.waiterId = data.waiterId;
+  }
+
+  if (data.openedAt === undefined && 'openedAt' in data) {
+    updateData.openedAt = deleteField();
+  } else if (data.openedAt !== undefined) {
+    updateData.openedAt = serverTimestamp();
+  }
+
+  await updateDoc(doc(db, 'businesses', businessId, 'tables', tableId), updateData);
 };
 
 // Masa sayisini guncelle (ekle veya sil)
