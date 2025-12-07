@@ -48,11 +48,12 @@ export interface Table {
 export interface MenuItem {
   id: string;
   name: string;
-  price: number;
+  price: number | null; // null = ucretsiz (otel restorani gibi)
   category: string;
   subCategory: string;
   destination: 'bar' | 'kitchen';
   description?: string;
+  imageUrl?: string; // Urun gorseli (Firebase Storage URL)
   isActive?: boolean; // Opsiyonel, varsayilan true
 }
 

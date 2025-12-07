@@ -23,7 +23,8 @@ import {
   FiArrowLeft,
   FiUsers,
   FiLogOut,
-  FiSettings
+  FiSettings,
+  FiBook
 } from 'react-icons/fi';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -353,6 +354,17 @@ export default function AdminPage() {
                 <p className="text-sm text-gray-500">Masa (Duzenle)</p>
               </div>
             </div>
+          </button>
+        </div>
+
+        {/* Menu Yonetimi Button */}
+        <div className="mb-4">
+          <button
+            onClick={() => router.push('/admin/menu')}
+            className="w-full py-3 bg-green-500 text-white font-semibold rounded-xl hover:bg-green-600 transition flex items-center justify-center gap-2"
+          >
+            <FiBook size={20} />
+            Menu Yonetimi
           </button>
         </div>
 

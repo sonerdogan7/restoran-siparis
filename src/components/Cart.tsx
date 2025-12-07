@@ -13,7 +13,7 @@ interface CartProps {
 }
 
 export default function Cart({ items, onRemove, onUpdateQuantity, onSubmit, tableNumber, guestCount }: CartProps) {
-  const total = items.reduce((sum, item) => sum + (item.menuItem.price * item.quantity), 0);
+  const total = items.reduce((sum, item) => sum + ((item.menuItem.price || 0) * item.quantity), 0);
 
   // Sandalye bazli gruplama
   const itemsBySeat: Record<number | string, OrderItem[]> = {};
@@ -44,7 +44,9 @@ export default function Cart({ items, onRemove, onUpdateQuantity, onSubmit, tabl
     <div className="flex flex-col h-full">
       <div className="p-3 border-b bg-gray-50">
         <h3 className="font-semibold text-gray-800 text-sm">Masa {tableNumber} - Siparis</h3>
-        <p className="text-xs text-gray-500">{items.length} kalem, {total} TL</p>
+        <p className="text-xs text-gray-500">
+          {items.length} kalem{total > 0 ? `, ${total.toFixed(2)} TL` : ' (Ucretsiz)'}
+        </p>
       </div>
 
       <div className="flex-1 overflow-auto p-3 space-y-3">
@@ -52,7 +54,7 @@ export default function Cart({ items, onRemove, onUpdateQuantity, onSubmit, tabl
           const seatItems = itemsBySeat[seatKey];
           const barItems = seatItems.filter(i => i.menuItem.destination === 'bar');
           const kitchenItems = seatItems.filter(i => i.menuItem.destination === 'kitchen');
-          const seatTotal = seatItems.reduce((sum, item) => sum + (item.menuItem.price * item.quantity), 0);
+          const seatTotal = seatItems.reduce((sum, item) => sum + ((item.menuItem.price || 0) * item.quantity), 0);
 
           return (
             <div key={seatKey} className="bg-white rounded-lg border p-2">
@@ -68,7 +70,9 @@ export default function Cart({ items, onRemove, onUpdateQuantity, onSubmit, tabl
                     {seatKey === 'genel' ? 'Genel' : `${seatKey}. Sandalye`}
                   </span>
                 </div>
-                <span className="text-xs font-semibold text-green-600">{seatTotal} TL</span>
+                <span className="text-xs font-semibold text-green-600">
+                  {seatTotal > 0 ? `${seatTotal.toFixed(2)} TL` : 'Ucretsiz'}
+                </span>
               </div>
 
               {/* Bar Urunleri */}
@@ -114,7 +118,9 @@ export default function Cart({ items, onRemove, onUpdateQuantity, onSubmit, tabl
       <div className="p-3 border-t bg-white">
         <div className="flex justify-between items-center mb-3">
           <span className="text-gray-600 text-sm">Toplam</span>
-          <span className="text-xl font-bold text-gray-800">{total} TL</span>
+          <span className="text-xl font-bold text-gray-800">
+            {total > 0 ? `${total.toFixed(2)} TL` : 'Ucretsiz'}
+          </span>
         </div>
         <button
           onClick={onSubmit}
@@ -141,7 +147,9 @@ function CartItem({
       <div className="flex justify-between items-start">
         <div className="flex-1 min-w-0">
           <h4 className="font-medium text-gray-800 text-xs truncate">{item.menuItem.name}</h4>
-          <p className="text-green-600 text-xs">{item.menuItem.price} TL</p>
+          <p className="text-green-600 text-xs">
+            {item.menuItem.price !== null ? `${item.menuItem.price.toFixed(2)} TL` : 'Ucretsiz'}
+          </p>
           {item.notes && (
             <p className="text-xs text-yellow-700 bg-yellow-50 px-1.5 py-0.5 rounded mt-1 truncate">
               {item.notes}
@@ -173,7 +181,7 @@ function CartItem({
           </button>
         </div>
         <span className="font-semibold text-gray-700 text-xs">
-          {item.menuItem.price * item.quantity} TL
+          {item.menuItem.price !== null ? `${(item.menuItem.price * item.quantity).toFixed(2)} TL` : 'Ucretsiz'}
         </span>
       </div>
     </div>

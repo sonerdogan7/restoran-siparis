@@ -160,7 +160,7 @@ export default function WaiterPage() {
         status: 'active',
         createdAt: new Date(),
         updatedAt: new Date(),
-        total: cartItems.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0),
+        total: cartItems.reduce((sum, item) => sum + (item.menuItem.price || 0) * item.quantity, 0),
       };
 
       await createOrder(currentBusiness.id, order);
@@ -221,7 +221,7 @@ export default function WaiterPage() {
     o.waiterId === user?.id && o.status === 'active'
   );
 
-  const cartTotal = cartItems.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
+  const cartTotal = cartItems.reduce((sum, item) => sum + (item.menuItem.price || 0) * item.quantity, 0);
 
   if (!user || !currentBusiness) {
     return null;
@@ -361,8 +361,12 @@ export default function WaiterPage() {
               {cartItems.length > 0 ? (
                 <>
                   <span className="font-bold">{cartItems.length}</span>
-                  <span className="text-sm">|</span>
-                  <span className="font-semibold">{cartTotal} TL</span>
+                  {cartTotal > 0 && (
+                    <>
+                      <span className="text-sm">|</span>
+                      <span className="font-semibold">{cartTotal.toFixed(2)} TL</span>
+                    </>
+                  )}
                 </>
               ) : (
                 <span>Sepet</span>
@@ -396,7 +400,9 @@ export default function WaiterPage() {
                   </span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="font-bold text-green-600">{cartTotal} TL</span>
+                  <span className="font-bold text-green-600">
+                    {cartTotal > 0 ? `${cartTotal.toFixed(2)} TL` : 'Ucretsiz'}
+                  </span>
                   <FiChevronDown size={24} className="text-gray-500" />
                 </div>
               </button>
@@ -500,7 +506,9 @@ export default function WaiterPage() {
 
                     <div className="mt-3 pt-3 border-t flex justify-between items-center">
                       <span className="text-gray-600">Masa Toplam</span>
-                      <span className="font-bold text-lg">{tableTotal} TL</span>
+                      <span className="font-bold text-lg">
+                        {tableTotal > 0 ? `${tableTotal.toFixed(2)} TL` : 'Ucretsiz'}
+                      </span>
                     </div>
                   </div>
                 );
