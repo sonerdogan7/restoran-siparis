@@ -126,14 +126,44 @@ export default function BarPage() {
     }
   };
 
-  // Birlestirilmis urunleri hazir isaretle (tum siparislerdeki ayni urunler)
-  const handleMarkMergedItemsReady = async (mergedItem: MergedItem) => {
+  // Tek urun hazirla - EN ESKI siparis veren masaninkini hazirla
+  const handleMarkOneReady = async (mergedItem: MergedItem) => {
+    if (!currentBusiness) return;
+
+    // Bekleyen itemlari bul
+    const pendingItems = mergedItem.items.filter(item => item.status !== 'ready');
+    if (pendingItems.length === 0) return;
+
+    // Siparisleri zamana gore sirala ve en eski bekleyen itemi bul
+    const itemsWithOrder = pendingItems.map(item => {
+      const order = orders.find(o => o.items.some(i => i.id === item.id));
+      return { item, order, orderTime: order ? new Date(order.createdAt).getTime() : Infinity };
+    }).sort((a, b) => a.orderTime - b.orderTime);
+
+    // En eski siparisteki itemi hazirla
+    const oldest = itemsWithOrder[0];
+    if (!oldest.order) return;
+
+    try {
+      const updatedItems = oldest.order.items.map(i =>
+        i.id === oldest.item.id ? { ...i, status: 'ready' as const } : i
+      );
+
+      await updateOrder(currentBusiness.id, oldest.order.id, { items: updatedItems });
+      toast.success(`1x ${mergedItem.menuItemName} hazir! (Masa ${oldest.order.tableNumber})`);
+    } catch (error) {
+      toast.error('Guncelleme basarisiz');
+    }
+  };
+
+  // Tum urunleri hazirla
+  const handleMarkAllMergedReady = async (mergedItem: MergedItem) => {
     if (!currentBusiness) return;
 
     try {
-      // Her bir orijinal item icin guncelleme yap
       for (const item of mergedItem.items) {
-        // Bu item hangi sipariste?
+        if (item.status === 'ready') continue;
+
         const order = orders.find(o => o.items.some(i => i.id === item.id));
         if (!order) continue;
 
@@ -143,7 +173,7 @@ export default function BarPage() {
 
         await updateOrder(currentBusiness.id, order.id, { items: updatedItems });
       }
-      toast.success(`${mergedItem.totalQuantity}x ${mergedItem.menuItemName} hazir!`);
+      toast.success(`${mergedItem.totalQuantity}x ${mergedItem.menuItemName} tumu hazir!`);
     } catch (error) {
       toast.error('Guncelleme basarisiz');
     }
@@ -330,12 +360,24 @@ export default function BarPage() {
                                 </div>
                               )}
                             </div>
-                            <button
-                              onClick={() => handleMarkMergedItemsReady(mergedItem)}
-                              className="p-3 bg-green-500 text-white rounded-xl hover:bg-green-600"
-                            >
-                              <FiCheck size={24} />
-                            </button>
+                            <div className="flex flex-col gap-1">
+                              {/* 1 Hazir - En eski siparisten */}
+                              <button
+                                onClick={() => handleMarkOneReady(mergedItem)}
+                                className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 text-sm font-bold"
+                              >
+                                1 Hazir
+                              </button>
+                              {/* Tumu Hazir */}
+                              {mergedItem.items.filter(i => i.status !== 'ready').length > 1 && (
+                                <button
+                                  onClick={() => handleMarkAllMergedReady(mergedItem)}
+                                  className="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-xs"
+                                >
+                                  Tumu ({mergedItem.items.filter(i => i.status !== 'ready').length})
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
                       ))}
