@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { Category, MenuItem } from '@/types';
+import { Category, MenuItem, SubCategory, SubSubCategory } from '@/types';
 import { db, storage } from '@/lib/firebase';
 import {
   collection,
@@ -41,6 +41,7 @@ interface ProductFormData {
   price: string; // String cunku bos olabilir (ucretsiz)
   category: string;
   subCategory: string;
+  subSubCategory: string; // 3. seviye kategori
   destination: 'bar' | 'kitchen';
   description: string;
   isActive: boolean;
@@ -57,6 +58,7 @@ const initialProductForm: ProductFormData = {
   price: '',
   category: '',
   subCategory: '',
+  subSubCategory: '',
   destination: 'kitchen',
   description: '',
   isActive: true
@@ -74,10 +76,16 @@ export default function MenuManagementPage() {
   const [categoryForm, setCategoryForm] = useState<CategoryFormData>(initialCategoryForm);
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
-  // Alt Kategori
+  // Alt Kategori (2. seviye)
   const [showSubCategoryModal, setShowSubCategoryModal] = useState(false);
   const [editingSubCategory, setEditingSubCategory] = useState<{ categoryId: string; subCategoryId: string | null } | null>(null);
   const [subCategoryName, setSubCategoryName] = useState('');
+
+  // Alt-Alt Kategori (3. seviye)
+  const [showSubSubCategoryModal, setShowSubSubCategoryModal] = useState(false);
+  const [editingSubSubCategory, setEditingSubSubCategory] = useState<{ categoryId: string; subCategoryId: string; subSubCategoryId: string | null } | null>(null);
+  const [subSubCategoryName, setSubSubCategoryName] = useState('');
+  const [expandedSubCategories, setExpandedSubCategories] = useState<Set<string>>(new Set());
 
   // Urunler
   const [products, setProducts] = useState<MenuItem[]>([]);
@@ -221,7 +229,7 @@ export default function MenuManagementPage() {
           id: newId,
           name: subCategoryName,
           order: updatedSubCategories.length,
-          items: []
+          subSubCategories: [] // 3. seviye icin bos array
         });
       }
 
@@ -239,6 +247,110 @@ export default function MenuManagementPage() {
     setLoading(false);
   };
 
+  // ==================== ALT-ALT KATEGORI ISLEMLERI (3. SEVIYE) ====================
+
+  const handleSaveSubSubCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentBusiness || !editingSubSubCategory) return;
+
+    const category = categories.find(c => c.id === editingSubSubCategory.categoryId);
+    if (!category) return;
+
+    const subCategory = category.subCategories?.find(sc => sc.id === editingSubSubCategory.subCategoryId);
+    if (!subCategory) return;
+
+    setLoading(true);
+    try {
+      let updatedSubSubCategories = [...(subCategory.subSubCategories || [])];
+
+      if (editingSubSubCategory.subSubCategoryId) {
+        // Guncelle
+        updatedSubSubCategories = updatedSubSubCategories.map(ssc =>
+          ssc.id === editingSubSubCategory.subSubCategoryId
+            ? { ...ssc, name: subSubCategoryName }
+            : ssc
+        );
+      } else {
+        // Yeni ekle
+        const newId = `subsub-${Date.now()}`;
+        updatedSubSubCategories.push({
+          id: newId,
+          name: subSubCategoryName,
+          order: updatedSubSubCategories.length
+        });
+      }
+
+      // Alt kategorileri guncelle
+      const updatedSubCategories = category.subCategories?.map(sc =>
+        sc.id === editingSubSubCategory.subCategoryId
+          ? { ...sc, subSubCategories: updatedSubSubCategories }
+          : sc
+      ) || [];
+
+      await updateDoc(doc(db, 'businesses', currentBusiness.id, 'categories', editingSubSubCategory.categoryId), {
+        subCategories: updatedSubCategories
+      });
+
+      toast.success(editingSubSubCategory.subSubCategoryId ? 'Alt-alt kategori guncellendi' : 'Alt-alt kategori eklendi');
+      setShowSubSubCategoryModal(false);
+      setEditingSubSubCategory(null);
+      setSubSubCategoryName('');
+    } catch (error) {
+      toast.error('Islem basarisiz');
+    }
+    setLoading(false);
+  };
+
+  const handleDeleteSubSubCategory = async (categoryId: string, subCategoryId: string, subSubCategoryId: string) => {
+    if (!currentBusiness) return;
+
+    const subSubCategoryProducts = products.filter(p =>
+      p.category === categoryId &&
+      p.subCategory === subCategoryId &&
+      p.subSubCategory === subSubCategoryId
+    );
+    if (subSubCategoryProducts.length > 0) {
+      toast.error(`Bu alt-alt kategoride ${subSubCategoryProducts.length} urun var. Once urunleri silin.`);
+      return;
+    }
+
+    if (!confirm('Bu alt-alt kategoriyi silmek istediginize emin misiniz?')) return;
+
+    const category = categories.find(c => c.id === categoryId);
+    if (!category) return;
+
+    const subCategory = category.subCategories?.find(sc => sc.id === subCategoryId);
+    if (!subCategory) return;
+
+    try {
+      const updatedSubSubCategories = subCategory.subSubCategories?.filter(ssc => ssc.id !== subSubCategoryId) || [];
+      const updatedSubCategories = category.subCategories?.map(sc =>
+        sc.id === subCategoryId
+          ? { ...sc, subSubCategories: updatedSubSubCategories }
+          : sc
+      ) || [];
+
+      await updateDoc(doc(db, 'businesses', currentBusiness.id, 'categories', categoryId), {
+        subCategories: updatedSubCategories
+      });
+      toast.success('Alt-alt kategori silindi');
+    } catch (error) {
+      toast.error('Silme basarisiz');
+    }
+  };
+
+  const toggleSubCategory = (subCategoryId: string) => {
+    setExpandedSubCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(subCategoryId)) {
+        next.delete(subCategoryId);
+      } else {
+        next.add(subCategoryId);
+      }
+      return next;
+    });
+  };
+
   const handleDeleteSubCategory = async (categoryId: string, subCategoryId: string) => {
     if (!currentBusiness) return;
 
@@ -248,13 +360,20 @@ export default function MenuManagementPage() {
       return;
     }
 
+    // Alt-alt kategori varsa uyar
+    const category = categories.find(c => c.id === categoryId);
+    const subCategory = category?.subCategories?.find(sc => sc.id === subCategoryId);
+    if (subCategory?.subSubCategories && subCategory.subSubCategories.length > 0) {
+      toast.error(`Bu alt kategoride ${subCategory.subSubCategories.length} alt-alt kategori var. Once onlari silin.`);
+      return;
+    }
+
     if (!confirm('Bu alt kategoriyi silmek istediginize emin misiniz?')) return;
 
-    const category = categories.find(c => c.id === categoryId);
     if (!category) return;
 
     try {
-      const updatedSubCategories = category.subCategories.filter(sc => sc.id !== subCategoryId);
+      const updatedSubCategories = (category.subCategories || []).filter(sc => sc.id !== subCategoryId);
       await updateDoc(doc(db, 'businesses', currentBusiness.id, 'categories', categoryId), {
         subCategories: updatedSubCategories
       });
@@ -302,8 +421,8 @@ export default function MenuManagementPage() {
     e.preventDefault();
     if (!currentBusiness) return;
 
-    if (!productForm.category || !productForm.subCategory) {
-      toast.error('Kategori ve alt kategori secmelisiniz');
+    if (!productForm.category || !productForm.subCategory || !productForm.subSubCategory) {
+      toast.error('Kategori, alt kategori ve alt-alt kategori secmelisiniz');
       return;
     }
 
@@ -329,6 +448,7 @@ export default function MenuManagementPage() {
           price: priceValue,
           category: productForm.category,
           subCategory: productForm.subCategory,
+          subSubCategory: productForm.subSubCategory,
           destination: productForm.destination,
           description: productForm.description,
           isActive: productForm.isActive,
@@ -342,6 +462,7 @@ export default function MenuManagementPage() {
           price: priceValue,
           category: productForm.category,
           subCategory: productForm.subCategory,
+          subSubCategory: productForm.subSubCategory,
           destination: productForm.destination,
           description: productForm.description,
           isActive: productForm.isActive,
@@ -374,6 +495,7 @@ export default function MenuManagementPage() {
       price: product.price !== null ? product.price.toString() : '',
       category: product.category,
       subCategory: product.subCategory,
+      subSubCategory: product.subSubCategory || '',
       destination: product.destination,
       description: product.description || '',
       isActive: product.isActive !== false
@@ -429,6 +551,13 @@ export default function MenuManagementPage() {
     return category?.subCategories || [];
   };
 
+  // Alt-alt kategorileri getir
+  const getSubSubCategories = (categoryId: string, subCategoryId: string) => {
+    const category = categories.find(c => c.id === categoryId);
+    const subCategory = category?.subCategories?.find(sc => sc.id === subCategoryId);
+    return subCategory?.subSubCategories || [];
+  };
+
   // Kategori adini getir
   const getCategoryName = (categoryId: string) => {
     return categories.find(c => c.id === categoryId)?.name || '';
@@ -437,7 +566,14 @@ export default function MenuManagementPage() {
   // Alt kategori adini getir
   const getSubCategoryName = (categoryId: string, subCategoryId: string) => {
     const category = categories.find(c => c.id === categoryId);
-    return category?.subCategories.find(sc => sc.id === subCategoryId)?.name || '';
+    return category?.subCategories?.find(sc => sc.id === subCategoryId)?.name || '';
+  };
+
+  // Alt-alt kategori adini getir
+  const getSubSubCategoryName = (categoryId: string, subCategoryId: string, subSubCategoryId: string) => {
+    const category = categories.find(c => c.id === categoryId);
+    const subCategory = category?.subCategories?.find(sc => sc.id === subCategoryId);
+    return subCategory?.subSubCategories?.find(ssc => ssc.id === subSubCategoryId)?.name || '';
   };
 
   if (!user || !currentBusiness) {
@@ -558,37 +694,109 @@ export default function MenuManagementPage() {
                     </div>
                   </div>
 
-                  {/* Alt Kategoriler */}
+                  {/* Alt Kategoriler (2. Seviye) */}
                   {expandedCategories.has(category.id) && (
                     <div className="border-t bg-gray-50 p-3">
                       <div className="space-y-2">
                         {category.subCategories?.map(subCat => (
-                          <div
-                            key={subCat.id}
-                            className="flex items-center justify-between bg-white rounded-lg p-3"
-                          >
-                            <span className="text-sm">{subCat.name}</span>
-                            <div className="flex items-center gap-1">
-                              <span className="text-xs text-gray-400 mr-2">
-                                {products.filter(p => p.subCategory === subCat.id).length} urun
-                              </span>
-                              <button
-                                onClick={() => {
-                                  setEditingSubCategory({ categoryId: category.id, subCategoryId: subCat.id });
-                                  setSubCategoryName(subCat.name);
-                                  setShowSubCategoryModal(true);
-                                }}
-                                className="p-1.5 text-blue-500 hover:bg-blue-50 rounded"
-                              >
-                                <FiEdit2 size={14} />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteSubCategory(category.id, subCat.id)}
-                                className="p-1.5 text-red-500 hover:bg-red-50 rounded"
-                              >
-                                <FiTrash2 size={14} />
-                              </button>
+                          <div key={subCat.id} className="bg-white rounded-lg overflow-hidden">
+                            {/* Alt Kategori Header */}
+                            <div
+                              className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50"
+                              onClick={() => toggleSubCategory(subCat.id)}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium">{subCat.name}</span>
+                                <span className="text-xs text-gray-400">
+                                  ({subCat.subSubCategories?.length || 0} alt-alt kategori)
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="text-xs text-gray-400 mr-2">
+                                  {products.filter(p => p.subCategory === subCat.id).length} urun
+                                </span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingSubCategory({ categoryId: category.id, subCategoryId: subCat.id });
+                                    setSubCategoryName(subCat.name);
+                                    setShowSubCategoryModal(true);
+                                  }}
+                                  className="p-1.5 text-blue-500 hover:bg-blue-50 rounded"
+                                >
+                                  <FiEdit2 size={14} />
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteSubCategory(category.id, subCat.id);
+                                  }}
+                                  className="p-1.5 text-red-500 hover:bg-red-50 rounded"
+                                >
+                                  <FiTrash2 size={14} />
+                                </button>
+                                {expandedSubCategories.has(subCat.id) ? (
+                                  <FiChevronUp size={14} className="text-gray-400" />
+                                ) : (
+                                  <FiChevronDown size={14} className="text-gray-400" />
+                                )}
+                              </div>
                             </div>
+
+                            {/* Alt-Alt Kategoriler (3. Seviye) */}
+                            {expandedSubCategories.has(subCat.id) && (
+                              <div className="border-t bg-gray-100 p-2 pl-6">
+                                <div className="space-y-1">
+                                  {subCat.subSubCategories?.map(subSubCat => (
+                                    <div
+                                      key={subSubCat.id}
+                                      className="flex items-center justify-between bg-white rounded p-2"
+                                    >
+                                      <span className="text-xs text-gray-700">{subSubCat.name}</span>
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-xs text-gray-400 mr-1">
+                                          {products.filter(p => p.subSubCategory === subSubCat.id).length} urun
+                                        </span>
+                                        <button
+                                          onClick={() => {
+                                            setEditingSubSubCategory({
+                                              categoryId: category.id,
+                                              subCategoryId: subCat.id,
+                                              subSubCategoryId: subSubCat.id
+                                            });
+                                            setSubSubCategoryName(subSubCat.name);
+                                            setShowSubSubCategoryModal(true);
+                                          }}
+                                          className="p-1 text-blue-500 hover:bg-blue-50 rounded"
+                                        >
+                                          <FiEdit2 size={12} />
+                                        </button>
+                                        <button
+                                          onClick={() => handleDeleteSubSubCategory(category.id, subCat.id, subSubCat.id)}
+                                          className="p-1 text-red-500 hover:bg-red-50 rounded"
+                                        >
+                                          <FiTrash2 size={12} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    setEditingSubSubCategory({
+                                      categoryId: category.id,
+                                      subCategoryId: subCat.id,
+                                      subSubCategoryId: null
+                                    });
+                                    setSubSubCategoryName('');
+                                    setShowSubSubCategoryModal(true);
+                                  }}
+                                  className="mt-2 w-full py-1.5 border border-dashed border-gray-300 text-gray-500 rounded hover:border-purple-400 hover:text-purple-500 transition text-xs"
+                                >
+                                  + Alt-Alt Kategori Ekle
+                                </button>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -661,7 +869,10 @@ export default function MenuManagementPage() {
                               <span className="text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded">Pasif</span>
                             )}
                           </div>
-                          <p className="text-xs text-gray-500">{getSubCategoryName(product.category, product.subCategory)}</p>
+                          <p className="text-xs text-gray-500">
+                            {getSubCategoryName(product.category, product.subCategory)}
+                            {product.subSubCategory && ` > ${getSubSubCategoryName(product.category, product.subCategory, product.subSubCategory)}`}
+                          </p>
                           <div className="flex items-center gap-2 mt-1">
                             <span className={`text-sm font-bold ${product.price === null ? 'text-green-600' : 'text-gray-800'}`}>
                               {product.price === null ? 'Ucretsiz' : `${product.price.toFixed(2)} TL`}
@@ -947,14 +1158,14 @@ export default function MenuManagementPage() {
                 )}
               </div>
 
-              {/* Kategori */}
+              {/* Kategori (1. Seviye) */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Kategori *
                 </label>
                 <select
                   value={productForm.category}
-                  onChange={(e) => setProductForm(prev => ({ ...prev, category: e.target.value, subCategory: '' }))}
+                  onChange={(e) => setProductForm(prev => ({ ...prev, category: e.target.value, subCategory: '', subSubCategory: '' }))}
                   className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
                   required
                 >
@@ -965,14 +1176,14 @@ export default function MenuManagementPage() {
                 </select>
               </div>
 
-              {/* Alt Kategori */}
+              {/* Alt Kategori (2. Seviye) */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Alt Kategori *
                 </label>
                 <select
                   value={productForm.subCategory}
-                  onChange={(e) => setProductForm(prev => ({ ...prev, subCategory: e.target.value }))}
+                  onChange={(e) => setProductForm(prev => ({ ...prev, subCategory: e.target.value, subSubCategory: '' }))}
                   className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
                   required
                   disabled={!productForm.category}
@@ -980,6 +1191,25 @@ export default function MenuManagementPage() {
                   <option value="">Alt Kategori Secin</option>
                   {getSubCategories(productForm.category).map(subCat => (
                     <option key={subCat.id} value={subCat.id}>{subCat.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Alt-Alt Kategori (3. Seviye) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Alt-Alt Kategori *
+                </label>
+                <select
+                  value={productForm.subSubCategory}
+                  onChange={(e) => setProductForm(prev => ({ ...prev, subSubCategory: e.target.value }))}
+                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500"
+                  required
+                  disabled={!productForm.subCategory}
+                >
+                  <option value="">Alt-Alt Kategori Secin</option>
+                  {getSubSubCategories(productForm.category, productForm.subCategory).map(subSubCat => (
+                    <option key={subSubCat.id} value={subSubCat.id}>{subSubCat.name}</option>
                   ))}
                 </select>
               </div>
@@ -1062,6 +1292,55 @@ export default function MenuManagementPage() {
                       Kaydet
                     </>
                   )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Alt-Alt Kategori Modal (3. Seviye) */}
+      {showSubSubCategoryModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden">
+            <div className="bg-indigo-500 p-4 text-white flex items-center justify-between">
+              <h2 className="text-lg font-bold">
+                {editingSubSubCategory?.subSubCategoryId ? 'Alt-Alt Kategori Duzenle' : 'Yeni Alt-Alt Kategori'}
+              </h2>
+              <button onClick={() => setShowSubSubCategoryModal(false)}>
+                <FiX size={24} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveSubSubCategory} className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Alt-Alt Kategori Adi
+                </label>
+                <input
+                  type="text"
+                  value={subSubCategoryName}
+                  onChange={(e) => setSubSubCategoryName(e.target.value)}
+                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  placeholder="Ornek: Kebaplar"
+                  required
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSubSubCategoryModal(false)}
+                  className="flex-1 py-3 bg-gray-100 text-gray-700 font-semibold rounded-xl"
+                >
+                  Iptal
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 py-3 bg-indigo-500 text-white font-semibold rounded-xl disabled:opacity-50"
+                >
+                  {loading ? 'Kaydediliyor...' : 'Kaydet'}
                 </button>
               </div>
             </form>

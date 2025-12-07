@@ -21,6 +21,7 @@ export default function MenuSelector({ onAddItem, guestCount = 1 }: MenuSelector
 
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSubCategory, setSelectedSubCategory] = useState<string | null>(null);
+  const [selectedSubSubCategory, setSelectedSubSubCategory] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [selectedSeats, setSelectedSeats] = useState<Record<string, number | undefined>>({});
@@ -61,12 +62,14 @@ export default function MenuSelector({ onAddItem, guestCount = 1 }: MenuSelector
   }, [currentBusiness]);
 
   const category = categories.find(c => c.id === selectedCategory);
+  const subCategory = category?.subCategories?.find(sc => sc.id === selectedSubCategory);
 
-  // Secili alt kategorideki urunleri getir
-  const getSubCategoryProducts = (subCategoryId: string) => {
+  // Secili alt-alt kategorideki urunleri getir
+  const getSubSubCategoryProducts = (subSubCategoryId: string) => {
     return products.filter(p =>
       p.category === selectedCategory &&
-      p.subCategory === subCategoryId
+      p.subCategory === selectedSubCategory &&
+      p.subSubCategory === subSubCategoryId
     );
   };
 
@@ -141,7 +144,7 @@ export default function MenuSelector({ onAddItem, guestCount = 1 }: MenuSelector
     );
   }
 
-  // Category selection view
+  // Category selection view (1. Seviye)
   if (!selectedCategory) {
     return (
       <div className="p-4">
@@ -175,7 +178,7 @@ export default function MenuSelector({ onAddItem, guestCount = 1 }: MenuSelector
     );
   }
 
-  // Subcategory selection view
+  // Subcategory selection view (2. Seviye)
   if (!selectedSubCategory && category) {
     return (
       <div className="p-4">
@@ -208,29 +211,66 @@ export default function MenuSelector({ onAddItem, guestCount = 1 }: MenuSelector
     );
   }
 
-  // Items view
-  const subCategoryProducts = selectedSubCategory ? getSubCategoryProducts(selectedSubCategory) : [];
-  const subCategoryName = category?.subCategories?.find(s => s.id === selectedSubCategory)?.name || '';
-
-  if (selectedSubCategory) {
+  // Sub-Subcategory selection view (3. Seviye)
+  if (!selectedSubSubCategory && subCategory) {
     return (
-      <div className="p-4 pb-24">
+      <div className="p-4">
         <button
           onClick={() => setSelectedSubCategory(null)}
           className="text-blue-500 mb-4 flex items-center gap-1"
         >
           ← {category?.name}
         </button>
-        <h3 className="text-lg font-semibold text-gray-700 mb-4">{subCategoryName}</h3>
+        <h3 className="text-lg font-semibold text-gray-700 mb-4">{subCategory.name}</h3>
+        <div className="space-y-2">
+          {subCategory.subSubCategories?.map(subSub => {
+            const subSubProducts = products.filter(p =>
+              p.category === category?.id &&
+              p.subCategory === subCategory.id &&
+              p.subSubCategory === subSub.id
+            );
+            return (
+              <button
+                key={subSub.id}
+                onClick={() => setSelectedSubSubCategory(subSub.id)}
+                className="w-full p-4 bg-white rounded-xl flex items-center justify-between shadow hover:shadow-md transition"
+              >
+                <span className="font-medium text-gray-700">{subSub.name}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-gray-400">{subSubProducts.length} urun</span>
+                  <FiChevronRight className="text-gray-400" />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
-        {subCategoryProducts.length === 0 ? (
+  // Items view (Urunler - 3. seviye secildikten sonra)
+  const subSubCategoryProducts = selectedSubSubCategory ? getSubSubCategoryProducts(selectedSubSubCategory) : [];
+  const subSubCategoryName = subCategory?.subSubCategories?.find(s => s.id === selectedSubSubCategory)?.name || '';
+
+  if (selectedSubSubCategory) {
+    return (
+      <div className="p-4 pb-24">
+        <button
+          onClick={() => setSelectedSubSubCategory(null)}
+          className="text-blue-500 mb-4 flex items-center gap-1"
+        >
+          ← {subCategory?.name}
+        </button>
+        <h3 className="text-lg font-semibold text-gray-700 mb-4">{subSubCategoryName}</h3>
+
+        {subSubCategoryProducts.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
             <FiPackage size={32} className="mx-auto mb-2 opacity-50" />
             <p>Bu kategoride urun yok</p>
           </div>
         ) : (
           <div className="space-y-3">
-            {subCategoryProducts.map(item => {
+            {subSubCategoryProducts.map(item => {
               const qty = getQuantity(item.id);
               const note = getNote(item.id);
               const selectedSeat = getSelectedSeat(item.id);

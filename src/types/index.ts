@@ -45,12 +45,16 @@ export interface Table {
 }
 
 // ==================== MENU ====================
+// 3 Seviyeli Kategori Yapisi:
+// Kategori (Yiyecekler) -> Alt Kategori (Ana Yemekler) -> Alt-Alt Kategori (Kebaplar)
+
 export interface MenuItem {
   id: string;
   name: string;
   price: number | null; // null = ucretsiz (otel restorani gibi)
-  category: string;
-  subCategory: string;
+  category: string; // Ana kategori ID
+  subCategory: string; // Alt kategori ID
+  subSubCategory?: string; // Alt-alt kategori ID (opsiyonel - 3. seviye)
   destination: 'bar' | 'kitchen';
   description?: string;
   imageUrl?: string; // Urun gorseli (Firebase Storage URL)
@@ -62,14 +66,20 @@ export interface Category {
   name: string;
   type: 'food' | 'drink';
   order?: number;
-  subCategories: SubCategory[];
+  subCategories?: SubCategory[]; // Alt kategoriler
 }
 
 export interface SubCategory {
   id: string;
   name: string;
   order?: number;
-  items: MenuItem[];
+  subSubCategories?: SubSubCategory[]; // Alt-alt kategoriler (3. seviye)
+}
+
+export interface SubSubCategory {
+  id: string;
+  name: string;
+  order?: number;
 }
 
 // ==================== ORDER (SIPARIS) ====================
