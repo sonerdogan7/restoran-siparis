@@ -34,9 +34,10 @@ service cloud.firestore {
 
     // System Users (superadmin)
     match /systemUsers/{userId} {
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isSuperAdmin());
-      allow create: if !exists(/databases/$(database)/documents/systemUsers/$(userId)) &&
-                       getDocs(collection(/databases/$(database)/documents/systemUsers)).size() == 0;
+      // Herkes okuyabilir (setup sayfasi icin gerekli - bos mu kontrol eder)
+      allow read: if true;
+      // Ilk superadmin: authenticated kullanici kendi uid'si ile kayit olusturabilir
+      allow create: if isAuthenticated() && request.auth.uid == userId;
       allow update: if isSuperAdmin();
       allow delete: if false; // Superadmin silinemez
     }

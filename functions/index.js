@@ -5,9 +5,13 @@ const cors = require('cors')({ origin: true });
 admin.initializeApp();
 
 // Kullanici olusturma (admin tarafindan)
-exports.createUser = functions.https.onCall(async (data, context) => {
+exports.createUser = functions.https.onCall(async (request, context) => {
+  // Firebase Functions v2 uyumlulugu
+  const data = request.data || request;
+  const auth = context?.auth || request?.auth;
+
   // Yetki kontrolu - sadece authenticated kullanicilar
-  if (!context.auth) {
+  if (!auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Giris yapmaniz gerekiyor');
   }
 
@@ -19,7 +23,7 @@ exports.createUser = functions.https.onCall(async (data, context) => {
   }
 
   // Cagiran kullanicinin yetkisini kontrol et
-  const callerUid = context.auth.uid;
+  const callerUid = auth.uid;
 
   // SuperAdmin mi?
   const systemUserDoc = await admin.firestore().doc(`systemUsers/${callerUid}`).get();
@@ -67,8 +71,11 @@ exports.createUser = functions.https.onCall(async (data, context) => {
 });
 
 // Kullanici silme
-exports.deleteUser = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
+exports.deleteUser = functions.https.onCall(async (request, context) => {
+  const data = request.data || request;
+  const auth = context?.auth || request?.auth;
+
+  if (!auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Giris yapmaniz gerekiyor');
   }
 
@@ -79,7 +86,7 @@ exports.deleteUser = functions.https.onCall(async (data, context) => {
   }
 
   // Yetki kontrolu
-  const callerUid = context.auth.uid;
+  const callerUid = auth.uid;
 
   const systemUserDoc = await admin.firestore().doc(`systemUsers/${callerUid}`).get();
   const isSuperAdmin = systemUserDoc.exists && systemUserDoc.data().roles.includes('superadmin');
@@ -111,8 +118,11 @@ exports.deleteUser = functions.https.onCall(async (data, context) => {
 });
 
 // Kullanici sifresini guncelle
-exports.updateUserPassword = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
+exports.updateUserPassword = functions.https.onCall(async (request, context) => {
+  const data = request.data || request;
+  const auth = context?.auth || request?.auth;
+
+  if (!auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Giris yapmaniz gerekiyor');
   }
 
@@ -123,7 +133,7 @@ exports.updateUserPassword = functions.https.onCall(async (data, context) => {
   }
 
   // Yetki kontrolu
-  const callerUid = context.auth.uid;
+  const callerUid = auth.uid;
 
   const systemUserDoc = await admin.firestore().doc(`systemUsers/${callerUid}`).get();
   const isSuperAdmin = systemUserDoc.exists && systemUserDoc.data().roles.includes('superadmin');
@@ -151,13 +161,17 @@ exports.updateUserPassword = functions.https.onCall(async (data, context) => {
 });
 
 // Isletme icin admin kullanici olustur (superadmin tarafindan)
-exports.createBusinessWithAdmin = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
+exports.createBusinessWithAdmin = functions.https.onCall(async (request, context) => {
+  // Firebase Functions v2 uyumlulugu - data nested olabilir
+  const data = request.data || request;
+  const auth = context?.auth || request?.auth;
+
+  if (!auth) {
     throw new functions.https.HttpsError('unauthenticated', 'Giris yapmaniz gerekiyor');
   }
 
   // Sadece superadmin
-  const callerUid = context.auth.uid;
+  const callerUid = auth.uid;
   const systemUserDoc = await admin.firestore().doc(`systemUsers/${callerUid}`).get();
 
   if (!systemUserDoc.exists || !systemUserDoc.data().roles.includes('superadmin')) {
@@ -177,6 +191,10 @@ exports.createBusinessWithAdmin = functions.https.onCall(async (data, context) =
 
   if (!businessName || !businessSlug || !adminEmail || !adminPassword || !adminName) {
     throw new functions.https.HttpsError('invalid-argument', 'Eksik bilgi');
+  }
+
+  if (typeof adminPassword !== 'string' || adminPassword.length < 6) {
+    throw new functions.https.HttpsError('invalid-argument', 'Sifre en az 6 karakter olmali');
   }
 
   try {
