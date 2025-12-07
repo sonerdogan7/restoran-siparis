@@ -1,36 +1,25 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { Table, MenuItem, Order, OrderItem } from '@/types';
 import TableGrid from '@/components/TableGrid';
 import GuestCountModal from '@/components/GuestCountModal';
 import MenuSelector from '@/components/MenuSelector';
 import Cart from '@/components/Cart';
-import { db } from '@/lib/firebase';
 import {
-  collection,
-  doc,
-  onSnapshot,
-  setDoc,
-  updateDoc,
-  addDoc,
-  query,
-  where,
-  serverTimestamp,
-  Timestamp
-} from 'firebase/firestore';
+  subscribeToTables,
+  subscribeToOrders,
+  updateTable,
+  createOrder,
+  initializeTables
+} from '@/lib/firebaseHelpers';
 import toast, { Toaster } from 'react-hot-toast';
 import { FiArrowLeft, FiList, FiGrid, FiLogOut, FiX, FiStar } from 'react-icons/fi';
 
-const INITIAL_TABLES: Table[] = Array.from({ length: 20 }, (_, i) => ({
-  id: `table-${i + 1}`,
-  number: i + 1,
-  status: 'empty',
-  guestCount: 0,
-}));
-
 export default function WaiterPage() {
+  const router = useRouter();
   const {
     tables,
     setTables,
@@ -43,13 +32,33 @@ export default function WaiterPage() {
     clearCart,
     activeOrders,
     setActiveOrders,
-    user
+    user,
+    currentBusiness,
+    logout
   } = useStore();
 
   const [view, setView] = useState<'tables' | 'order' | 'myOrders'>('tables');
   const [showGuestModal, setShowGuestModal] = useState(false);
   const [pendingTable, setPendingTable] = useState<Table | null>(null);
   const [tableTab, setTableTab] = useState<'all' | 'myTables'>('all');
+
+  // Yetki kontrolu
+  useEffect(() => {
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+    if (!user.roles.includes('waiter') && !user.roles.includes('admin')) {
+      toast.error('Bu sayfaya erisim yetkiniz yok');
+      router.push('/select-panel');
+      return;
+    }
+    if (!currentBusiness) {
+      toast.error('Isletme bilgisi bulunamadi');
+      router.push('/login');
+      return;
+    }
+  }, [user, currentBusiness, router]);
 
   // Garsonun aktif masalari (dolu olan ve garsonun actigi masalar)
   const myTables = tables.filter(t =>
@@ -58,48 +67,30 @@ export default function WaiterPage() {
 
   // Initialize tables and listen for changes
   useEffect(() => {
-    
+    if (!currentBusiness) return;
 
-    const tablesRef = collection(db, 'tables');
-
-    const unsubscribe = onSnapshot(tablesRef, (snapshot) => {
-      if (snapshot.empty) {
+    const unsubscribe = subscribeToTables(currentBusiness.id, (tablesData) => {
+      if (tablesData.length === 0) {
         // Initialize tables if none exist
-        INITIAL_TABLES.forEach(async (table) => {
-          await setDoc(doc(db, 'tables', table.id), table);
-        });
-        setTables(INITIAL_TABLES);
+        initializeTables(currentBusiness.id, currentBusiness.tableCount);
       } else {
-        const tablesData = snapshot.docs.map(doc => ({
-          ...doc.data(),
-          id: doc.id,
-        })) as Table[];
-        setTables(tablesData.sort((a, b) => a.number - b.number));
+        setTables(tablesData);
       }
     });
 
     return () => unsubscribe();
-  }, [setTables]);
+  }, [currentBusiness, setTables]);
 
   // Listen for active orders
   useEffect(() => {
-    
+    if (!currentBusiness) return;
 
-    const ordersRef = collection(db, 'orders');
-    const q = query(ordersRef, where('status', '==', 'active'));
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const ordersData = snapshot.docs.map(doc => ({
-        ...doc.data(),
-        id: doc.id,
-        createdAt: doc.data().createdAt?.toDate() || new Date(),
-        updatedAt: doc.data().updatedAt?.toDate() || new Date(),
-      })) as Order[];
+    const unsubscribe = subscribeToOrders(currentBusiness.id, 'active', (ordersData) => {
       setActiveOrders(ordersData);
     });
 
     return () => unsubscribe();
-  }, [setActiveOrders]);
+  }, [currentBusiness, setActiveOrders]);
 
   const handleTableSelect = (table: Table) => {
     if (table.status === 'empty') {
@@ -112,14 +103,15 @@ export default function WaiterPage() {
   };
 
   const handleOpenTable = async (guestCount: number) => {
-    if (!pendingTable || !db) return;
+    if (!pendingTable || !currentBusiness) return;
 
     try {
-      await updateDoc(doc(db, 'tables', pendingTable.id), {
+      await updateTable(currentBusiness.id, pendingTable.id, {
         status: 'occupied',
         guestCount,
         waiter: user?.name || 'Garson',
-        openedAt: serverTimestamp(),
+        waiterId: user?.id,
+        openedAt: new Date()
       });
 
       setCurrentTable({
@@ -127,14 +119,15 @@ export default function WaiterPage() {
         status: 'occupied',
         guestCount,
         waiter: user?.name || 'Garson',
+        waiterId: user?.id
       });
 
       setShowGuestModal(false);
       setPendingTable(null);
       setView('order');
-      toast.success(`Masa ${pendingTable.number} açıldı`);
+      toast.success(`Masa ${pendingTable.number} acildi`);
     } catch (error) {
-      toast.error('Masa açılamadı');
+      toast.error('Masa acilamadi');
     }
   };
 
@@ -143,7 +136,7 @@ export default function WaiterPage() {
   };
 
   const handleSubmitOrder = async () => {
-    if (!currentTable || cartItems.length === 0 || !db) return;
+    if (!currentTable || cartItems.length === 0 || !currentBusiness || !user) return;
 
     try {
       const order: Omit<Order, 'id'> = {
@@ -153,66 +146,73 @@ export default function WaiterPage() {
           ...item,
           createdAt: new Date(),
         })),
-        waiter: user?.name || 'Garson',
+        waiter: user.name,
+        waiterId: user.id,
         status: 'active',
         createdAt: new Date(),
         updatedAt: new Date(),
         total: cartItems.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0),
       };
 
-      await addDoc(collection(db, 'orders'), {
-        ...order,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+      await createOrder(currentBusiness.id, order);
 
       clearCart();
-      toast.success('Sipariş gönderildi!');
+      toast.success('Siparis gonderildi!');
 
       // Show notification
       const barCount = cartItems.filter(i => i.menuItem.destination === 'bar').length;
       const kitchenCount = cartItems.filter(i => i.menuItem.destination === 'kitchen').length;
 
-      if (barCount > 0) toast(`🍺 ${barCount} ürün Bara gönderildi`, { icon: '📤' });
-      if (kitchenCount > 0) toast(`🍳 ${kitchenCount} ürün Mutfağa gönderildi`, { icon: '📤' });
+      if (barCount > 0) toast(`${barCount} urun Bara gonderildi`, { icon: '🍺' });
+      if (kitchenCount > 0) toast(`${kitchenCount} urun Mutfaga gonderildi`, { icon: '🍳' });
 
     } catch (error) {
-      toast.error('Sipariş gönderilemedi');
+      toast.error('Siparis gonderilemedi');
     }
   };
 
   const handleCloseTable = async () => {
-    if (!currentTable || !db) return;
+    if (!currentTable || !currentBusiness) return;
 
     const hasActiveOrders = activeOrders.some(
       o => o.tableId === currentTable.id && o.status === 'active'
     );
 
     if (hasActiveOrders) {
-      toast.error('Aktif siparişler var, önce tamamlayın');
+      toast.error('Aktif siparisler var, once tamamlayin');
       return;
     }
 
     try {
-      await updateDoc(doc(db, 'tables', currentTable.id), {
+      await updateTable(currentBusiness.id, currentTable.id, {
         status: 'empty',
         guestCount: 0,
-        waiter: null,
-        openedAt: null,
+        waiter: undefined,
+        waiterId: undefined,
+        openedAt: undefined
       });
 
-      toast.success(`Masa ${currentTable.number} kapatıldı`);
+      toast.success(`Masa ${currentTable.number} kapatildi`);
       setCurrentTable(null);
       clearCart();
       setView('tables');
     } catch (error) {
-      toast.error('Masa kapatılamadı');
+      toast.error('Masa kapatilamadi');
     }
   };
 
+  const handleLogout = () => {
+    logout();
+    router.push('/login');
+  };
+
   const myActiveOrders = activeOrders.filter(o =>
-    o.waiter === (user?.name || 'Garson') && o.status === 'active'
+    o.waiterId === user?.id && o.status === 'active'
   );
+
+  if (!user || !currentBusiness) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -221,23 +221,32 @@ export default function WaiterPage() {
       {/* Header */}
       <header className="bg-white shadow-sm sticky top-0 z-40">
         <div className="flex items-center justify-between px-4 py-3">
-          {view !== 'tables' && (
+          {view !== 'tables' ? (
             <button
               onClick={() => {
                 setView('tables');
-                // Sepeti silme, masa secildiginde geri yuklenecek
                 setCurrentTable(null);
               }}
               className="p-2 hover:bg-gray-100 rounded-lg"
             >
               <FiArrowLeft size={24} />
             </button>
+          ) : (
+            <button
+              onClick={() => router.push('/select-panel')}
+              className="p-2 hover:bg-gray-100 rounded-lg"
+            >
+              <FiArrowLeft size={24} />
+            </button>
           )}
-          <h1 className="text-lg font-bold text-gray-800 flex-1 text-center">
-            {view === 'tables' && 'Masalar'}
-            {view === 'order' && `Masa ${currentTable?.number}`}
-            {view === 'myOrders' && 'Siparişlerim'}
-          </h1>
+          <div className="text-center flex-1">
+            <h1 className="text-lg font-bold text-gray-800">
+              {view === 'tables' && 'Masalar'}
+              {view === 'order' && `Masa ${currentTable?.number}`}
+              {view === 'myOrders' && 'Siparislerim'}
+            </h1>
+            <p className="text-xs text-gray-500">{currentBusiness.name}</p>
+          </div>
           <div className="flex gap-2">
             {view === 'tables' && (
               <button
@@ -252,6 +261,12 @@ export default function WaiterPage() {
                 )}
               </button>
             )}
+            <button
+              onClick={handleLogout}
+              className="p-2 hover:bg-gray-100 rounded-lg text-red-500"
+            >
+              <FiLogOut size={24} />
+            </button>
           </div>
         </div>
       </header>
@@ -337,7 +352,7 @@ export default function WaiterPage() {
                   className="w-full py-3 bg-red-500 text-white font-semibold rounded-xl hover:bg-red-600 transition flex items-center justify-center gap-2"
                 >
                   <FiX />
-                  Masayı Kapat
+                  Masayi Kapat
                 </button>
               </div>
             )}
@@ -350,7 +365,7 @@ export default function WaiterPage() {
         <div className="p-4 space-y-4">
           {myActiveOrders.length === 0 ? (
             <div className="text-center text-gray-500 py-8">
-              Aktif siparişiniz yok
+              Aktif siparisiniz yok
             </div>
           ) : (
             myActiveOrders.map(order => (
@@ -375,14 +390,14 @@ export default function WaiterPage() {
                           ? 'bg-green-100 text-green-700'
                           : 'bg-yellow-100 text-yellow-700'
                       }`}>
-                        {item.status === 'ready' ? 'Hazır' : 'Hazırlanıyor'}
+                        {item.status === 'ready' ? 'Hazir' : 'Hazirlaniyor'}
                       </span>
                     </div>
                   ))}
                 </div>
                 <div className="mt-3 pt-3 border-t flex justify-between items-center">
                   <span className="text-gray-600">Toplam</span>
-                  <span className="font-bold text-lg">{order.total} ₺</span>
+                  <span className="font-bold text-lg">{order.total} TL</span>
                 </div>
               </div>
             ))

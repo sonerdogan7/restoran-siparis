@@ -1,67 +1,118 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
+import { User } from '@/types';
+import { findUserByEmail, getBusiness } from '@/lib/firebaseHelpers';
 import { FiUser, FiLock, FiLogIn } from 'react-icons/fi';
 import toast, { Toaster } from 'react-hot-toast';
 
-// Demo users - In production, use Firebase Auth
-const DEMO_USERS = [
-  { id: '1', email: 'garson@restoran.com', password: '1234', name: 'Ahmet', role: 'waiter' as const },
-  { id: '2', email: 'bar@restoran.com', password: '1234', name: 'Bar', role: 'bar' as const },
-  { id: '3', email: 'mutfak@restoran.com', password: '1234', name: 'Mutfak', role: 'kitchen' as const },
-  { id: '4', email: 'admin@restoran.com', password: 'admin', name: 'Admin', role: 'admin' as const },
-];
-
 export default function LoginPage() {
   const router = useRouter();
-  const { setUser } = useStore();
+  const { setUser, setCurrentBusiness, user } = useStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Zaten giris yapmissa panel secime yonlendir
+  useEffect(() => {
+    if (user) {
+      if (user.roles.includes('superadmin')) {
+        router.push('/superadmin');
+      } else {
+        router.push('/select-panel');
+      }
+    }
+  }, [user, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
-    // Demo authentication
-    const user = DEMO_USERS.find(
-      u => u.email === email && u.password === password
-    );
+    try {
+      // Kullaniciyi e-posta ile bul
+      const userData = await findUserByEmail(email);
 
-    if (user) {
-      setUser(user);
-      toast.success(`Hoş geldin, ${user.name}!`);
-
-      // Redirect based on role
-      switch (user.role) {
-        case 'waiter':
-          router.push('/waiter');
-          break;
-        case 'bar':
-          router.push('/bar');
-          break;
-        case 'kitchen':
-          router.push('/kitchen');
-          break;
-        case 'admin':
-          router.push('/waiter'); // Admin can access all
-          break;
+      if (!userData) {
+        toast.error('Kullanici bulunamadi');
+        setLoading(false);
+        return;
       }
-    } else {
-      toast.error('E-posta veya şifre hatalı');
+
+      // Sifre kontrolu
+      if (userData.password !== password) {
+        toast.error('Sifre hatali');
+        setLoading(false);
+        return;
+      }
+
+      // Aktif mi kontrolu
+      if (!userData.isActive) {
+        toast.error('Hesabiniz pasif durumda. Yonetici ile iletisime gecin.');
+        setLoading(false);
+        return;
+      }
+
+      // User objesi olustur (password haric)
+      const user: User = {
+        id: userData.id,
+        email: userData.email,
+        name: userData.name,
+        roles: userData.roles,
+        businessId: userData.businessId,
+        isActive: userData.isActive,
+        createdAt: userData.createdAt,
+      };
+
+      // Superadmin degilse isletme bilgisini al
+      if (!user.roles.includes('superadmin') && user.businessId !== 'system') {
+        const business = await getBusiness(user.businessId);
+        if (!business) {
+          toast.error('Isletme bulunamadi');
+          setLoading(false);
+          return;
+        }
+        if (!business.isActive) {
+          toast.error('Isletme aktif degil. Yonetici ile iletisime gecin.');
+          setLoading(false);
+          return;
+        }
+        setCurrentBusiness(business);
+      }
+
+      setUser(user);
+      toast.success(`Hos geldin, ${user.name}!`);
+
+      // Yonlendirme
+      if (user.roles.includes('superadmin')) {
+        router.push('/superadmin');
+      } else if (user.roles.length === 1) {
+        // Tek rol varsa direkt o panele git
+        switch (user.roles[0]) {
+          case 'waiter':
+            router.push('/waiter');
+            break;
+          case 'bar':
+            router.push('/bar');
+            break;
+          case 'kitchen':
+            router.push('/kitchen');
+            break;
+          case 'admin':
+            router.push('/admin');
+            break;
+        }
+      } else {
+        // Birden fazla rol varsa secim sayfasina git
+        router.push('/select-panel');
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      toast.error('Giris yapilamadi');
     }
 
     setLoading(false);
-  };
-
-  const handleQuickLogin = (role: string) => {
-    const user = DEMO_USERS.find(u => u.role === role);
-    if (user) {
-      setEmail(user.email);
-      setPassword(user.password);
-    }
   };
 
   return (
@@ -72,7 +123,7 @@ export default function LoginPage() {
         {/* Header */}
         <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-6 text-white text-center">
           <h1 className="text-3xl font-bold mb-2">Restoran POS</h1>
-          <p className="opacity-80">Sipariş Yönetim Sistemi</p>
+          <p className="opacity-80">Siparis Yonetim Sistemi</p>
         </div>
 
         {/* Form */}
@@ -96,7 +147,7 @@ export default function LoginPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Şifre
+              Sifre
             </label>
             <div className="relative">
               <FiLock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -121,46 +172,15 @@ export default function LoginPage() {
             ) : (
               <>
                 <FiLogIn />
-                Giriş Yap
+                Giris Yap
               </>
             )}
           </button>
         </form>
 
-        {/* Quick Login */}
-        <div className="px-6 pb-6">
-          <p className="text-sm text-gray-500 text-center mb-3">Hızlı Giriş (Demo)</p>
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              type="button"
-              onClick={() => handleQuickLogin('waiter')}
-              className="py-2 px-3 bg-green-100 text-green-700 rounded-lg text-sm font-medium hover:bg-green-200 transition"
-            >
-              Garson
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickLogin('bar')}
-              className="py-2 px-3 bg-blue-100 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-200 transition"
-            >
-              Bar
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickLogin('kitchen')}
-              className="py-2 px-3 bg-orange-100 text-orange-700 rounded-lg text-sm font-medium hover:bg-orange-200 transition"
-            >
-              Mutfak
-            </button>
-          </div>
-        </div>
-
-        {/* Demo Info */}
-        <div className="bg-gray-50 px-6 py-4 text-xs text-gray-500">
-          <p className="font-medium mb-1">Demo Hesaplar:</p>
-          <p>garson@restoran.com / 1234</p>
-          <p>bar@restoran.com / 1234</p>
-          <p>mutfak@restoran.com / 1234</p>
+        {/* Info */}
+        <div className="bg-gray-50 px-6 py-4 text-xs text-gray-500 text-center">
+          <p>Hesabiniz yok mu? Yonetici ile iletisime gecin.</p>
         </div>
       </div>
     </div>
