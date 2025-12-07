@@ -13,10 +13,11 @@ import {
   subscribeToOrders,
   updateTable,
   createOrder,
+  updateOrder,
   initializeTables
 } from '@/lib/firebaseHelpers';
 import toast, { Toaster } from 'react-hot-toast';
-import { FiArrowLeft, FiList, FiGrid, FiLogOut, FiX, FiStar, FiShoppingCart, FiChevronUp, FiChevronDown } from 'react-icons/fi';
+import { FiArrowLeft, FiList, FiGrid, FiLogOut, FiX, FiStar, FiShoppingCart, FiChevronUp, FiChevronDown, FiPlus, FiCheck, FiClock, FiPackage } from 'react-icons/fi';
 
 export default function WaiterPage() {
   const router = useRouter();
@@ -37,11 +38,12 @@ export default function WaiterPage() {
     logout
   } = useStore();
 
-  const [view, setView] = useState<'tables' | 'order' | 'myOrders'>('tables');
+  const [view, setView] = useState<'tables' | 'tableDetail' | 'order' | 'myOrders'>('tables');
   const [showGuestModal, setShowGuestModal] = useState(false);
   const [pendingTable, setPendingTable] = useState<Table | null>(null);
   const [tableTab, setTableTab] = useState<'all' | 'myTables'>('all');
   const [isCartExpanded, setIsCartExpanded] = useState(false);
+  const [deliveryLoading, setDeliveryLoading] = useState<string | null>(null);
 
   // Yetki kontrolu
   useEffect(() => {
@@ -99,8 +101,68 @@ export default function WaiterPage() {
       setShowGuestModal(true);
     } else {
       setCurrentTable(table);
-      setView('order');
+      setView('tableDetail'); // Once masa detayini goster
     }
+  };
+
+  // Masanin siparislerini getir
+  const getTableOrders = (tableId: string) => {
+    return activeOrders.filter(o => o.tableId === tableId && o.status === 'active');
+  };
+
+  // Siparis teslim edildi isaretle
+  const handleMarkDelivered = async (orderId: string, itemId: string) => {
+    if (!currentBusiness) return;
+    setDeliveryLoading(itemId);
+
+    const order = activeOrders.find(o => o.id === orderId);
+    if (!order) return;
+
+    try {
+      const updatedItems = order.items.map(item =>
+        item.id === itemId ? { ...item, status: 'served' as const } : item
+      );
+
+      // Tum urunler teslim edildiyse siparisi tamamla
+      const allServed = updatedItems.every(item => item.status === 'served');
+
+      await updateOrder(currentBusiness.id, orderId, {
+        items: updatedItems,
+        status: allServed ? 'completed' : 'active'
+      });
+
+      toast.success('Urun teslim edildi');
+    } catch (error) {
+      toast.error('Islem basarisiz');
+    }
+    setDeliveryLoading(null);
+  };
+
+  // Tum hazir urunleri teslim et
+  const handleMarkAllDelivered = async (orderId: string) => {
+    if (!currentBusiness) return;
+    setDeliveryLoading(orderId);
+
+    const order = activeOrders.find(o => o.id === orderId);
+    if (!order) return;
+
+    try {
+      const updatedItems = order.items.map(item =>
+        item.status === 'ready' ? { ...item, status: 'served' as const } : item
+      );
+
+      const allServed = updatedItems.every(item => item.status === 'served');
+
+      await updateOrder(currentBusiness.id, orderId, {
+        items: updatedItems,
+        status: allServed ? 'completed' : 'active'
+      });
+
+      toast.success('Hazir urunler teslim edildi');
+    } catch (error) {
+      toast.error('Islem basarisiz');
+    }
+    setDeliveryLoading(null);
   };
 
   const handleOpenTable = async (guestCount: number) => {
@@ -234,7 +296,21 @@ export default function WaiterPage() {
       {/* Header */}
       <header className="bg-white shadow-sm sticky top-0 z-40">
         <div className="flex items-center justify-between px-4 py-3">
-          {view !== 'tables' ? (
+          {view === 'tables' ? (
+            <button
+              onClick={() => router.push('/select-panel')}
+              className="p-2 hover:bg-gray-100 rounded-lg"
+            >
+              <FiArrowLeft size={24} />
+            </button>
+          ) : view === 'order' ? (
+            <button
+              onClick={() => setView('tableDetail')}
+              className="p-2 hover:bg-gray-100 rounded-lg"
+            >
+              <FiArrowLeft size={24} />
+            </button>
+          ) : (
             <button
               onClick={() => {
                 setView('tables');
@@ -245,18 +321,12 @@ export default function WaiterPage() {
             >
               <FiArrowLeft size={24} />
             </button>
-          ) : (
-            <button
-              onClick={() => router.push('/select-panel')}
-              className="p-2 hover:bg-gray-100 rounded-lg"
-            >
-              <FiArrowLeft size={24} />
-            </button>
           )}
           <div className="text-center flex-1">
             <h1 className="text-lg font-bold text-gray-800">
               {view === 'tables' && 'Masalar'}
-              {view === 'order' && `Masa ${currentTable?.number}`}
+              {view === 'tableDetail' && `Masa ${currentTable?.number}`}
+              {view === 'order' && `Masa ${currentTable?.number} - Siparis`}
               {view === 'myOrders' && 'Siparislerim'}
             </h1>
             <p className="text-xs text-gray-500">{currentBusiness.name}</p>
@@ -338,6 +408,206 @@ export default function WaiterPage() {
             )
           )}
         </>
+      )}
+
+      {/* Table Detail View - Mevcut Siparisler */}
+      {view === 'tableDetail' && currentTable && (
+        <div className="p-4 space-y-4">
+          {/* Masa Bilgisi */}
+          <div className="bg-white rounded-xl p-4 shadow">
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-xl font-bold">Masa {currentTable.number}</h2>
+                <p className="text-sm text-gray-500">{currentTable.guestCount} kisi • {currentTable.waiter}</p>
+              </div>
+              <button
+                onClick={() => setView('order')}
+                className="flex items-center gap-2 bg-green-500 text-white px-4 py-2 rounded-xl hover:bg-green-600 transition"
+              >
+                <FiPlus size={18} />
+                Yeni Siparis
+              </button>
+            </div>
+          </div>
+
+          {/* Mevcut Siparisler */}
+          {(() => {
+            const tableOrders = getTableOrders(currentTable.id);
+            const tableTotal = tableOrders.reduce((sum, o) => sum + o.total, 0);
+
+            if (tableOrders.length === 0) {
+              return (
+                <div className="bg-white rounded-xl p-8 shadow text-center">
+                  <FiPackage size={48} className="mx-auto text-gray-300 mb-3" />
+                  <p className="text-gray-500">Henuz siparis yok</p>
+                  <button
+                    onClick={() => setView('order')}
+                    className="mt-4 px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
+                  >
+                    Siparis Ekle
+                  </button>
+                </div>
+              );
+            }
+
+            return (
+              <>
+                {/* Siparis Ozeti */}
+                <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl p-4 text-white">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-sm opacity-80">{tableOrders.length} siparis</p>
+                      <p className="text-2xl font-bold">
+                        {tableTotal > 0 ? `${tableTotal.toFixed(2)} TL` : 'Ucretsiz'}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm opacity-80">Durum</p>
+                      {(() => {
+                        const allItems = tableOrders.flatMap(o => o.items);
+                        const readyCount = allItems.filter(i => i.status === 'ready').length;
+                        const servedCount = allItems.filter(i => i.status === 'served').length;
+                        const pendingCount = allItems.filter(i => i.status === 'pending' || i.status === 'preparing').length;
+                        return (
+                          <p className="text-lg font-semibold">
+                            {readyCount > 0 && `${readyCount} hazir`}
+                            {readyCount > 0 && pendingCount > 0 && ' • '}
+                            {pendingCount > 0 && `${pendingCount} bekliyor`}
+                            {servedCount > 0 && readyCount === 0 && pendingCount === 0 && `${servedCount} teslim edildi`}
+                          </p>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Siparis Listesi */}
+                {tableOrders.map((order, orderIdx) => {
+                  const readyItems = order.items.filter(i => i.status === 'ready');
+                  const hasReadyItems = readyItems.length > 0;
+
+                  return (
+                    <div key={order.id} className="bg-white rounded-xl shadow overflow-hidden">
+                      {/* Siparis Header */}
+                      <div className="bg-gray-50 px-4 py-2 border-b flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-gray-700">
+                            Siparis #{orderIdx + 1}
+                          </span>
+                          <span className="text-xs text-gray-400">
+                            {new Date(order.createdAt).toLocaleTimeString('tr-TR', {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </span>
+                        </div>
+                        {hasReadyItems && (
+                          <button
+                            onClick={() => handleMarkAllDelivered(order.id)}
+                            disabled={deliveryLoading === order.id}
+                            className="text-xs bg-green-500 text-white px-3 py-1 rounded-full hover:bg-green-600 disabled:opacity-50"
+                          >
+                            {deliveryLoading === order.id ? 'Isleniyor...' : `Tumu Teslim Et (${readyItems.length})`}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Urunler */}
+                      <div className="divide-y">
+                        {order.items.map(item => {
+                          const isPending = item.status === 'pending' || item.status === 'preparing';
+                          const isReady = item.status === 'ready';
+                          const isServed = item.status === 'served';
+
+                          return (
+                            <div
+                              key={item.id}
+                              className={`px-4 py-3 flex items-center justify-between ${
+                                isServed ? 'bg-gray-50 opacity-60' : ''
+                              }`}
+                            >
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium">{item.quantity}x</span>
+                                  <span className={isServed ? 'line-through text-gray-500' : ''}>
+                                    {item.menuItem.name}
+                                  </span>
+                                  {item.seatNumber && (
+                                    <span className="text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">
+                                      {item.seatNumber}. san
+                                    </span>
+                                  )}
+                                </div>
+                                {item.notes && (
+                                  <p className="text-xs text-yellow-700 mt-0.5">Not: {item.notes}</p>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                {/* Durum Badge */}
+                                {isPending && (
+                                  <span className="flex items-center gap-1 text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full">
+                                    <FiClock size={12} />
+                                    Hazirlaniyor
+                                  </span>
+                                )}
+                                {isReady && (
+                                  <span className="flex items-center gap-1 text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                                    <FiCheck size={12} />
+                                    Hazir
+                                  </span>
+                                )}
+                                {isServed && (
+                                  <span className="flex items-center gap-1 text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full">
+                                    <FiCheck size={12} />
+                                    Teslim
+                                  </span>
+                                )}
+
+                                {/* Teslim Et Butonu */}
+                                {isReady && (
+                                  <button
+                                    onClick={() => handleMarkDelivered(order.id, item.id)}
+                                    disabled={deliveryLoading === item.id}
+                                    className="p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50"
+                                  >
+                                    {deliveryLoading === item.id ? (
+                                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                      <FiCheck size={16} />
+                                    )}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Alt Butonlar */}
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setView('order')}
+                    className="py-3 bg-green-500 text-white font-semibold rounded-xl hover:bg-green-600 transition flex items-center justify-center gap-2"
+                  >
+                    <FiPlus size={18} />
+                    Siparis Ekle
+                  </button>
+                  <button
+                    onClick={handleCloseTable}
+                    className="py-3 bg-red-500 text-white font-semibold rounded-xl hover:bg-red-600 transition flex items-center justify-center gap-2"
+                  >
+                    <FiX size={18} />
+                    Masayi Kapat
+                  </button>
+                </div>
+              </>
+            );
+          })()}
+        </div>
       )}
 
       {/* Order View - Yeni Tasarim */}
