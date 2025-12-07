@@ -53,21 +53,21 @@ export interface MenuItem {
   subCategory: string;
   destination: 'bar' | 'kitchen';
   description?: string;
-  isActive: boolean;
+  isActive?: boolean; // Opsiyonel, varsayilan true
 }
 
 export interface Category {
   id: string;
   name: string;
   type: 'food' | 'drink';
-  order: number;
+  order?: number;
   subCategories: SubCategory[];
 }
 
 export interface SubCategory {
   id: string;
   name: string;
-  order: number;
+  order?: number;
   items: MenuItem[];
 }
 
