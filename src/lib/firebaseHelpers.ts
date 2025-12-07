@@ -236,8 +236,34 @@ export const subscribeToOrders = (
 // Siparis olustur
 export const createOrder = async (businessId: string, data: Omit<Order, 'id'>): Promise<string> => {
   const ordersRef = collection(db, 'businesses', businessId, 'orders');
+
+  // Undefined degerleri temizle (Firestore undefined kabul etmez)
+  const cleanData = JSON.parse(JSON.stringify({
+    tableId: data.tableId,
+    tableNumber: data.tableNumber,
+    items: data.items.map(item => ({
+      id: item.id,
+      menuItem: {
+        id: item.menuItem.id,
+        name: item.menuItem.name,
+        price: item.menuItem.price,
+        category: item.menuItem.category,
+        subCategory: item.menuItem.subCategory,
+        destination: item.menuItem.destination,
+      },
+      quantity: item.quantity,
+      notes: item.notes || null,
+      seatNumber: item.seatNumber || null,
+      status: item.status || 'pending',
+    })),
+    waiter: data.waiter,
+    waiterId: data.waiterId,
+    status: data.status,
+    total: data.total,
+  }));
+
   const docRef = await addDoc(ordersRef, {
-    ...data,
+    ...cleanData,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });

@@ -140,13 +140,21 @@ export default function WaiterPage() {
     if (!currentTable || cartItems.length === 0 || !currentBusiness || !user) return;
 
     try {
+      // Items icindeki Date objelerini temizle (Firestore timestamp kullanacak)
+      const cleanedItems: OrderItem[] = cartItems.map(item => ({
+        id: item.id,
+        menuItem: item.menuItem,
+        quantity: item.quantity,
+        notes: item.notes,
+        seatNumber: item.seatNumber,
+        status: 'pending' as const,
+        createdAt: new Date(),
+      }));
+
       const order: Omit<Order, 'id'> = {
         tableId: currentTable.id,
         tableNumber: currentTable.number,
-        items: cartItems.map(item => ({
-          ...item,
-          createdAt: new Date(),
-        })),
+        items: cleanedItems,
         waiter: user.name,
         waiterId: user.id,
         status: 'active',
@@ -168,8 +176,9 @@ export default function WaiterPage() {
       if (barCount > 0) toast(`${barCount} urun Bara gonderildi`, { icon: '🍺' });
       if (kitchenCount > 0) toast(`${kitchenCount} urun Mutfaga gonderildi`, { icon: '🍳' });
 
-    } catch (error) {
-      toast.error('Siparis gonderilemedi');
+    } catch (error: any) {
+      console.error('Siparis hatasi:', error);
+      toast.error(`Siparis gonderilemedi: ${error.message || error.code || 'Bilinmeyen hata'}`);
     }
   };
 
