@@ -16,7 +16,7 @@ import {
   initializeTables
 } from '@/lib/firebaseHelpers';
 import toast, { Toaster } from 'react-hot-toast';
-import { FiArrowLeft, FiList, FiGrid, FiLogOut, FiX, FiStar } from 'react-icons/fi';
+import { FiArrowLeft, FiList, FiGrid, FiLogOut, FiX, FiStar, FiShoppingCart, FiChevronUp, FiChevronDown } from 'react-icons/fi';
 
 export default function WaiterPage() {
   const router = useRouter();
@@ -41,6 +41,7 @@ export default function WaiterPage() {
   const [showGuestModal, setShowGuestModal] = useState(false);
   const [pendingTable, setPendingTable] = useState<Table | null>(null);
   const [tableTab, setTableTab] = useState<'all' | 'myTables'>('all');
+  const [isCartExpanded, setIsCartExpanded] = useState(false);
 
   // Yetki kontrolu
   useEffect(() => {
@@ -131,8 +132,8 @@ export default function WaiterPage() {
     }
   };
 
-  const handleAddItem = (item: MenuItem, quantity: number, notes?: string) => {
-    addToCart(item, quantity, notes);
+  const handleAddItem = (item: MenuItem, quantity: number, notes?: string, seatNumber?: number) => {
+    addToCart(item, quantity, notes, seatNumber);
   };
 
   const handleSubmitOrder = async () => {
@@ -157,6 +158,7 @@ export default function WaiterPage() {
       await createOrder(currentBusiness.id, order);
 
       clearCart();
+      setIsCartExpanded(false);
       toast.success('Siparis gonderildi!');
 
       // Show notification
@@ -210,6 +212,8 @@ export default function WaiterPage() {
     o.waiterId === user?.id && o.status === 'active'
   );
 
+  const cartTotal = cartItems.reduce((sum, item) => sum + item.menuItem.price * item.quantity, 0);
+
   if (!user || !currentBusiness) {
     return null;
   }
@@ -226,6 +230,7 @@ export default function WaiterPage() {
               onClick={() => {
                 setView('tables');
                 setCurrentTable(null);
+                setIsCartExpanded(false);
               }}
               className="p-2 hover:bg-gray-100 rounded-lg"
             >
@@ -326,37 +331,93 @@ export default function WaiterPage() {
         </>
       )}
 
-      {/* Order View */}
+      {/* Order View - Yeni Tasarim */}
       {view === 'order' && currentTable && (
-        <div className="flex flex-col lg:flex-row h-[calc(100vh-60px)]">
-          {/* Menu Section */}
-          <div className="flex-1 overflow-auto bg-gray-50">
-            <MenuSelector onAddItem={handleAddItem} />
-          </div>
-
-          {/* Cart Section */}
-          <div className="w-full lg:w-96 bg-white border-t lg:border-l lg:border-t-0 flex flex-col">
-            <Cart
-              items={cartItems}
-              onRemove={removeFromCart}
-              onUpdateQuantity={updateCartItem}
-              onSubmit={handleSubmitOrder}
-              tableNumber={currentTable.number}
+        <div className="relative min-h-[calc(100vh-60px)]">
+          {/* Menu Section - Full Screen */}
+          <div className="pb-20">
+            <MenuSelector
+              onAddItem={handleAddItem}
+              guestCount={currentTable.guestCount}
             />
-
-            {/* Close Table Button */}
-            {currentTable.status === 'occupied' && (
-              <div className="p-4 border-t">
-                <button
-                  onClick={handleCloseTable}
-                  className="w-full py-3 bg-red-500 text-white font-semibold rounded-xl hover:bg-red-600 transition flex items-center justify-center gap-2"
-                >
-                  <FiX />
-                  Masayi Kapat
-                </button>
-              </div>
-            )}
           </div>
+
+          {/* Floating Cart Button - Sepet kapali iken */}
+          {!isCartExpanded && (
+            <button
+              onClick={() => setIsCartExpanded(true)}
+              className="fixed bottom-4 right-4 z-50 flex items-center gap-2 bg-green-500 text-white px-4 py-3 rounded-full shadow-lg hover:bg-green-600 transition-all"
+            >
+              <FiShoppingCart size={20} />
+              {cartItems.length > 0 ? (
+                <>
+                  <span className="font-bold">{cartItems.length}</span>
+                  <span className="text-sm">|</span>
+                  <span className="font-semibold">{cartTotal} TL</span>
+                </>
+              ) : (
+                <span>Sepet</span>
+              )}
+            </button>
+          )}
+
+          {/* Masa Kapat Butonu */}
+          {!isCartExpanded && currentTable.status === 'occupied' && (
+            <button
+              onClick={handleCloseTable}
+              className="fixed bottom-4 left-4 z-50 flex items-center gap-2 bg-red-500 text-white px-4 py-3 rounded-full shadow-lg hover:bg-red-600 transition-all"
+            >
+              <FiX size={20} />
+              <span>Kapat</span>
+            </button>
+          )}
+
+          {/* Expanded Cart Panel */}
+          {isCartExpanded && (
+            <div className="fixed inset-x-0 bottom-0 z-50 bg-white rounded-t-2xl shadow-2xl max-h-[80vh] flex flex-col animate-slide-up">
+              {/* Cart Header */}
+              <button
+                onClick={() => setIsCartExpanded(false)}
+                className="flex items-center justify-between p-4 border-b bg-gray-50 rounded-t-2xl"
+              >
+                <div className="flex items-center gap-2">
+                  <FiShoppingCart size={20} className="text-green-600" />
+                  <span className="font-semibold text-gray-800">
+                    Sepet ({cartItems.length} urun)
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="font-bold text-green-600">{cartTotal} TL</span>
+                  <FiChevronDown size={24} className="text-gray-500" />
+                </div>
+              </button>
+
+              {/* Cart Content */}
+              <div className="flex-1 overflow-auto">
+                <Cart
+                  items={cartItems}
+                  onRemove={removeFromCart}
+                  onUpdateQuantity={updateCartItem}
+                  onSubmit={handleSubmitOrder}
+                  tableNumber={currentTable.number}
+                  guestCount={currentTable.guestCount}
+                />
+              </div>
+
+              {/* Masa Kapat */}
+              {currentTable.status === 'occupied' && (
+                <div className="p-3 border-t bg-gray-50">
+                  <button
+                    onClick={handleCloseTable}
+                    className="w-full py-3 bg-red-500 text-white font-semibold rounded-xl hover:bg-red-600 transition flex items-center justify-center gap-2"
+                  >
+                    <FiX />
+                    Masayi Kapat
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -384,6 +445,9 @@ export default function WaiterPage() {
                     <div key={item.id} className="flex justify-between text-sm">
                       <span>
                         <span className="font-medium">{item.quantity}x</span> {item.menuItem.name}
+                        {item.seatNumber && (
+                          <span className="ml-1 text-xs text-indigo-600">({item.seatNumber}. san.)</span>
+                        )}
                       </span>
                       <span className={`px-2 py-0.5 rounded text-xs ${
                         item.status === 'ready'
@@ -416,6 +480,21 @@ export default function WaiterPage() {
           }}
         />
       )}
+
+      {/* Custom Styles */}
+      <style jsx global>{`
+        @keyframes slide-up {
+          from {
+            transform: translateY(100%);
+          }
+          to {
+            transform: translateY(0);
+          }
+        }
+        .animate-slide-up {
+          animation: slide-up 0.3s ease-out;
+        }
+      `}</style>
     </div>
   );
 }

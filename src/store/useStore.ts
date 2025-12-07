@@ -33,7 +33,7 @@ interface AppState {
   // Cart per table (masa bazli sepet)
   tableCarts: Record<string, OrderItem[]>;
   cartItems: OrderItem[];
-  addToCart: (item: MenuItem, quantity?: number, notes?: string) => void;
+  addToCart: (item: MenuItem, quantity?: number, notes?: string, seatNumber?: number) => void;
   removeFromCart: (itemId: string) => void;
   updateCartItem: (itemId: string, quantity: number) => void;
   clearCart: () => void;
@@ -125,9 +125,9 @@ export const useStore = create<AppState>()(
       // Cart
       tableCarts: {},
       cartItems: [],
-      addToCart: (item, quantity = 1, notes) => {
+      addToCart: (item, quantity = 1, notes, seatNumber) => {
         const existingIndex = get().cartItems.findIndex(
-          (ci) => ci.menuItem.id === item.id && ci.notes === notes
+          (ci) => ci.menuItem.id === item.id && ci.notes === notes && ci.seatNumber === seatNumber
         );
 
         if (existingIndex > -1) {
@@ -144,6 +144,7 @@ export const useStore = create<AppState>()(
             menuItem: item,
             quantity,
             notes,
+            seatNumber,
             status: 'pending',
             createdAt: new Date(),
           };

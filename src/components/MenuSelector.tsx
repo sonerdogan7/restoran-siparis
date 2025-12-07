@@ -3,18 +3,20 @@
 import { useState } from 'react';
 import { menuData } from '@/lib/menuData';
 import { MenuItem } from '@/types';
-import { FiPlus, FiMinus, FiChevronRight, FiEdit3 } from 'react-icons/fi';
+import { FiPlus, FiMinus, FiChevronRight, FiEdit3, FiUser } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 
 interface MenuSelectorProps {
-  onAddItem: (item: MenuItem, quantity: number, notes?: string) => void;
+  onAddItem: (item: MenuItem, quantity: number, notes?: string, seatNumber?: number) => void;
+  guestCount?: number;
 }
 
-export default function MenuSelector({ onAddItem }: MenuSelectorProps) {
+export default function MenuSelector({ onAddItem, guestCount = 1 }: MenuSelectorProps) {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedSubCategory, setSelectedSubCategory] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [selectedSeats, setSelectedSeats] = useState<Record<string, number | undefined>>({});
   const [showNoteInput, setShowNoteInput] = useState<string | null>(null);
 
   const category = menuData.find(c => c.id === selectedCategory);
@@ -22,6 +24,7 @@ export default function MenuSelector({ onAddItem }: MenuSelectorProps) {
 
   const getQuantity = (itemId: string) => quantities[itemId] || 0;
   const getNote = (itemId: string) => notes[itemId] || '';
+  const getSelectedSeat = (itemId: string) => selectedSeats[itemId];
 
   const updateQuantity = (itemId: string, delta: number) => {
     setQuantities(prev => ({
@@ -37,22 +40,32 @@ export default function MenuSelector({ onAddItem }: MenuSelectorProps) {
     }));
   };
 
+  const updateSeat = (itemId: string, seat: number | undefined) => {
+    setSelectedSeats(prev => ({
+      ...prev,
+      [itemId]: seat
+    }));
+  };
+
   const handleAddItem = (item: MenuItem) => {
     const qty = getQuantity(item.id);
     const note = getNote(item.id);
+    const seat = getSelectedSeat(item.id);
     if (qty > 0) {
-      onAddItem(item, qty, note || undefined);
+      onAddItem(item, qty, note || undefined, seat);
       setQuantities(prev => ({ ...prev, [item.id]: 0 }));
       setNotes(prev => ({ ...prev, [item.id]: '' }));
+      setSelectedSeats(prev => ({ ...prev, [item.id]: undefined }));
       setShowNoteInput(null);
-      toast.success(`${qty}x ${item.name} eklendi`);
+      const seatText = seat ? ` (${seat}. sandalye)` : '';
+      toast.success(`${qty}x ${item.name}${seatText} eklendi`);
     }
   };
 
   const quickNotes = [
-    'Az pismiş',
-    'Orta pismiş',
-    'Cok pismiş',
+    'Az pismis',
+    'Orta pismis',
+    'Cok pismis',
     'Acisiz',
     'Extra acili',
     'Sogansiz',
@@ -122,7 +135,7 @@ export default function MenuSelector({ onAddItem }: MenuSelectorProps) {
   // Items view
   if (subCategory) {
     return (
-      <div className="p-4">
+      <div className="p-4 pb-24">
         <button
           onClick={() => setSelectedSubCategory(null)}
           className="text-blue-500 mb-4 flex items-center gap-1"
@@ -134,6 +147,7 @@ export default function MenuSelector({ onAddItem }: MenuSelectorProps) {
           {subCategory.items.map(item => {
             const qty = getQuantity(item.id);
             const note = getNote(item.id);
+            const selectedSeat = getSelectedSeat(item.id);
             const isNoteOpen = showNoteInput === item.id;
 
             return (
@@ -192,6 +206,41 @@ export default function MenuSelector({ onAddItem }: MenuSelectorProps) {
                   )}
                 </div>
 
+                {/* Sandalye Secimi */}
+                {qty > 0 && guestCount > 1 && (
+                  <div className="mt-3 pt-3 border-t">
+                    <p className="text-sm text-gray-600 mb-2 flex items-center gap-1">
+                      <FiUser size={14} />
+                      Sandalye sec:
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => updateSeat(item.id, undefined)}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                          selectedSeat === undefined
+                            ? 'bg-gray-700 text-white'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        Genel
+                      </button>
+                      {Array.from({ length: guestCount }, (_, i) => i + 1).map(seatNum => (
+                        <button
+                          key={seatNum}
+                          onClick={() => updateSeat(item.id, seatNum)}
+                          className={`w-9 h-9 rounded-lg text-sm font-bold transition ${
+                            selectedSeat === seatNum
+                              ? 'bg-indigo-500 text-white'
+                              : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                          }`}
+                        >
+                          {seatNum}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Not girisi */}
                 {qty > 0 && isNoteOpen && (
                   <div className="mt-3 pt-3 border-t">
@@ -237,6 +286,14 @@ export default function MenuSelector({ onAddItem }: MenuSelectorProps) {
                 {qty > 0 && !isNoteOpen && note && (
                   <div className="mt-2 text-xs text-yellow-700 bg-yellow-50 px-2 py-1 rounded">
                     Not: {note}
+                  </div>
+                )}
+
+                {/* Secili sandalye gosterimi */}
+                {qty > 0 && selectedSeat && (
+                  <div className="mt-2 text-xs text-indigo-700 bg-indigo-50 px-2 py-1 rounded flex items-center gap-1">
+                    <FiUser size={12} />
+                    {selectedSeat}. Sandalye
                   </div>
                 )}
               </div>

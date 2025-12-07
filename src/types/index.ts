@@ -77,6 +77,7 @@ export interface OrderItem {
   menuItem: MenuItem;
   quantity: number;
   notes?: string;
+  seatNumber?: number; // Sandalye numarasi
   status: 'pending' | 'preparing' | 'ready' | 'served';
   createdAt: Date;
 }
