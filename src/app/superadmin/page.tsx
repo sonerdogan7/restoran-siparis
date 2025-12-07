@@ -5,15 +5,14 @@ import { useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { Business } from '@/types';
 import { db } from '@/lib/firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
   collection,
   onSnapshot,
-  addDoc,
   updateDoc,
-  doc,
-  serverTimestamp
+  doc
 } from 'firebase/firestore';
-import { createUser, initializeBusinessData } from '@/lib/firebaseHelpers';
+import { logoutUser } from '@/lib/auth';
 import {
   FiPlus,
   FiEdit2,
@@ -81,6 +80,9 @@ export default function SuperAdminPage() {
         createdAt: doc.data().createdAt?.toDate() || new Date()
       })) as Business[];
       setBusinesses(data);
+    }, (error) => {
+      console.error('Firestore error:', error);
+      toast.error('Veri yuklenemedi');
     });
 
     return () => unsubscribe();
@@ -117,32 +119,20 @@ export default function SuperAdminPage() {
         });
         toast.success('Isletme guncellendi');
       } else {
-        // Yeni isletme olustur
-        const businessRef = await addDoc(collection(db, 'businesses'), {
-          name: formData.name,
-          slug: formData.slug,
-          address: formData.address,
-          phone: formData.phone,
+        // Yeni isletme olustur - Cloud Function kullan
+        const functions = getFunctions();
+        const createBusinessWithAdmin = httpsCallable(functions, 'createBusinessWithAdmin');
+
+        await createBusinessWithAdmin({
+          businessName: formData.name,
+          businessSlug: formData.slug,
+          businessAddress: formData.address,
+          businessPhone: formData.phone,
           tableCount: formData.tableCount,
-          isActive: formData.isActive,
-          createdAt: serverTimestamp(),
-          subscription: {
-            plan: 'free',
-            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 gun
-          }
+          adminEmail: formData.adminEmail,
+          adminPassword: formData.adminPassword,
+          adminName: formData.adminName
         });
-
-        // Admin kullanici olustur
-        await createUser(businessRef.id, {
-          email: formData.adminEmail,
-          password: formData.adminPassword,
-          name: formData.adminName,
-          roles: ['admin'],
-          isActive: true
-        });
-
-        // Masalari ve ornek verileri olustur
-        await initializeBusinessData(businessRef.id, formData.tableCount);
 
         toast.success('Isletme ve admin kullanici olusturuldu');
       }
@@ -150,9 +140,10 @@ export default function SuperAdminPage() {
       setShowModal(false);
       setEditingBusiness(null);
       setFormData(initialFormData);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error:', error);
-      toast.error('Islem basarisiz');
+      const firebaseError = error as { message?: string };
+      toast.error(firebaseError.message || 'Islem basarisiz');
     }
 
     setLoading(false);
@@ -185,9 +176,16 @@ export default function SuperAdminPage() {
     }
   };
 
-  const handleLogout = () => {
-    logout();
-    router.push('/login');
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+      logout();
+      router.push('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+      logout();
+      router.push('/login');
+    }
   };
 
   if (!user || !user.roles.includes('superadmin')) {
@@ -457,7 +455,7 @@ export default function SuperAdminPage() {
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Admin Sifre
+                          Admin Sifre (min 6 karakter)
                         </label>
                         <input
                           type="password"
@@ -465,6 +463,7 @@ export default function SuperAdminPage() {
                           onChange={(e) => setFormData(prev => ({ ...prev, adminPassword: e.target.value }))}
                           className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
                           required
+                          minLength={6}
                         />
                       </div>
                     </div>

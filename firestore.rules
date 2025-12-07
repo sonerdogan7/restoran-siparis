@@ -1,28 +1,97 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Tables collection
-    match /tables/{tableId} {
-      allow read: if true;
-      allow write: if true;
+
+    // Yardimci fonksiyonlar
+    function isAuthenticated() {
+      return request.auth != null;
     }
 
-    // Orders collection
-    match /orders/{orderId} {
-      allow read: if true;
-      allow write: if true;
+    function isSystemUser() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/systemUsers/$(request.auth.uid));
     }
 
-    // Users collection
-    match /users/{userId} {
-      allow read: if true;
-      allow write: if true;
+    function isSuperAdmin() {
+      return isSystemUser() &&
+        get(/databases/$(database)/documents/systemUsers/$(request.auth.uid)).data.roles.hasAny(['superadmin']);
     }
 
-    // Menu collection
-    match /menu/{itemId} {
-      allow read: if true;
-      allow write: if true;
+    function isBusinessUser(businessId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/businesses/$(businessId)/users/$(request.auth.uid));
+    }
+
+    function isBusinessAdmin(businessId) {
+      return isBusinessUser(businessId) &&
+        get(/databases/$(database)/documents/businesses/$(businessId)/users/$(request.auth.uid)).data.roles.hasAny(['admin']);
+    }
+
+    function hasBusinessRole(businessId, role) {
+      return isBusinessUser(businessId) &&
+        get(/databases/$(database)/documents/businesses/$(businessId)/users/$(request.auth.uid)).data.roles.hasAny([role]);
+    }
+
+    // System Users (superadmin)
+    match /systemUsers/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isSuperAdmin());
+      allow create: if !exists(/databases/$(database)/documents/systemUsers/$(userId)) &&
+                       getDocs(collection(/databases/$(database)/documents/systemUsers)).size() == 0;
+      allow update: if isSuperAdmin();
+      allow delete: if false; // Superadmin silinemez
+    }
+
+    // Businesses (Isletmeler)
+    match /businesses/{businessId} {
+      allow read: if isAuthenticated() && (isSuperAdmin() || isBusinessUser(businessId));
+      allow create: if isSuperAdmin();
+      allow update: if isSuperAdmin() || isBusinessAdmin(businessId);
+      allow delete: if isSuperAdmin();
+
+      // Business Users (Kullanicilar)
+      match /users/{userId} {
+        allow read: if isAuthenticated() && (isSuperAdmin() || isBusinessUser(businessId));
+        allow create: if isSuperAdmin() || isBusinessAdmin(businessId);
+        allow update: if isSuperAdmin() || isBusinessAdmin(businessId) || request.auth.uid == userId;
+        allow delete: if isSuperAdmin() || isBusinessAdmin(businessId);
+      }
+
+      // Tables (Masalar)
+      match /tables/{tableId} {
+        allow read: if isAuthenticated() && (isSuperAdmin() || isBusinessUser(businessId));
+        allow write: if isAuthenticated() && (
+          isSuperAdmin() ||
+          isBusinessAdmin(businessId) ||
+          hasBusinessRole(businessId, 'waiter')
+        );
+      }
+
+      // Orders (Siparisler)
+      match /orders/{orderId} {
+        allow read: if isAuthenticated() && (isSuperAdmin() || isBusinessUser(businessId));
+        allow create: if isAuthenticated() && (
+          isSuperAdmin() ||
+          hasBusinessRole(businessId, 'waiter') ||
+          hasBusinessRole(businessId, 'admin')
+        );
+        allow update: if isAuthenticated() && (
+          isSuperAdmin() ||
+          isBusinessUser(businessId)
+        );
+        allow delete: if isSuperAdmin() || isBusinessAdmin(businessId);
+      }
+
+      // Categories (Kategoriler)
+      match /categories/{categoryId} {
+        allow read: if isAuthenticated() && (isSuperAdmin() || isBusinessUser(businessId));
+        allow write: if isSuperAdmin() || isBusinessAdmin(businessId);
+      }
+
+      // Products (Urunler)
+      match /products/{productId} {
+        allow read: if isAuthenticated() && (isSuperAdmin() || isBusinessUser(businessId));
+        allow write: if isSuperAdmin() || isBusinessAdmin(businessId);
+      }
     }
   }
 }

@@ -3,8 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { User } from '@/types';
-import { findUserByEmail, getBusiness } from '@/lib/firebaseHelpers';
+import { loginWithEmail } from '@/lib/auth';
 import { FiUser, FiLock, FiLogIn } from 'react-icons/fi';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -31,65 +30,29 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // Kullaniciyi e-posta ile bul
-      const userData = await findUserByEmail(email);
+      const result = await loginWithEmail(email, password);
 
-      if (!userData) {
-        toast.error('Kullanici bulunamadi');
+      if (!result) {
+        toast.error('Giris yapilamadi');
         setLoading(false);
         return;
       }
 
-      // Sifre kontrolu
-      if (userData.password !== password) {
-        toast.error('Sifre hatali');
-        setLoading(false);
-        return;
-      }
+      const { user: userData, business } = result;
 
-      // Aktif mi kontrolu
-      if (!userData.isActive) {
-        toast.error('Hesabiniz pasif durumda. Yonetici ile iletisime gecin.');
-        setLoading(false);
-        return;
-      }
-
-      // User objesi olustur (password haric)
-      const user: User = {
-        id: userData.id,
-        email: userData.email,
-        name: userData.name,
-        roles: userData.roles,
-        businessId: userData.businessId,
-        isActive: userData.isActive,
-        createdAt: userData.createdAt,
-      };
-
-      // Superadmin degilse isletme bilgisini al
-      if (!user.roles.includes('superadmin') && user.businessId !== 'system') {
-        const business = await getBusiness(user.businessId);
-        if (!business) {
-          toast.error('Isletme bulunamadi');
-          setLoading(false);
-          return;
-        }
-        if (!business.isActive) {
-          toast.error('Isletme aktif degil. Yonetici ile iletisime gecin.');
-          setLoading(false);
-          return;
-        }
+      // Store'a kaydet
+      setUser(userData);
+      if (business) {
         setCurrentBusiness(business);
       }
 
-      setUser(user);
-      toast.success(`Hos geldin, ${user.name}!`);
+      toast.success(`Hos geldin, ${userData.name}!`);
 
-      // Yonlendirme (replace ile gecmise ekleme)
-      if (user.roles.includes('superadmin')) {
+      // Yonlendirme
+      if (userData.roles.includes('superadmin')) {
         router.replace('/superadmin');
-      } else if (user.roles.length === 1) {
-        // Tek rol varsa direkt o panele git
-        switch (user.roles[0]) {
+      } else if (userData.roles.length === 1) {
+        switch (userData.roles[0]) {
           case 'waiter':
             router.replace('/waiter');
             break;
@@ -104,12 +67,15 @@ export default function LoginPage() {
             break;
         }
       } else {
-        // Birden fazla rol varsa secim sayfasina git
         router.replace('/select-panel');
       }
     } catch (error) {
       console.error('Login error:', error);
-      toast.error('Giris yapilamadi');
+      if (error instanceof Error) {
+        toast.error(error.message);
+      } else {
+        toast.error('Giris yapilamadi');
+      }
     }
 
     setLoading(false);
@@ -158,6 +124,7 @@ export default function LoginPage() {
                 className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 placeholder="••••••••"
                 required
+                minLength={6}
               />
             </div>
           </div>

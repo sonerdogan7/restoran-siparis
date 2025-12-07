@@ -4,7 +4,16 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { User, UserRole } from '@/types';
-import { getBusinessUsers, createUser, updateUser, deleteUser, updateTableCount } from '@/lib/firebaseHelpers';
+import { db } from '@/lib/firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import {
+  collection,
+  onSnapshot,
+  updateDoc,
+  doc
+} from 'firebase/firestore';
+import { logoutUser } from '@/lib/auth';
+import { updateTableCount } from '@/lib/firebaseHelpers';
 import {
   FiPlus,
   FiEdit2,
@@ -44,7 +53,7 @@ const initialFormData: UserFormData = {
 export default function AdminPage() {
   const router = useRouter();
   const { user, currentBusiness, setCurrentBusiness, logout } = useStore();
-  const [users, setUsers] = useState<(User & { password?: string })[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState<string | null>(null);
   const [formData, setFormData] = useState<UserFormData>(initialFormData);
@@ -75,15 +84,24 @@ export default function AdminPage() {
   useEffect(() => {
     if (!currentBusiness) return;
 
-    const unsubscribe = getBusinessUsers(currentBusiness.id, (usersData) => {
+    const usersRef = collection(db, 'businesses', currentBusiness.id, 'users');
+    const unsubscribe = onSnapshot(usersRef, (snapshot) => {
+      const usersData = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate() || new Date()
+      })) as User[];
       setUsers(usersData);
+    }, (error) => {
+      console.error('Firestore error:', error);
+      toast.error('Kullanicilar yuklenemedi');
     });
 
     return () => unsubscribe();
   }, [currentBusiness]);
 
   const handleRoleToggle = (role: UserRole) => {
-    if (role === 'superadmin') return; // superadmin eklenemez
+    if (role === 'superadmin') return;
     setFormData(prev => ({
       ...prev,
       roles: prev.roles.includes(role)
@@ -104,48 +122,64 @@ export default function AdminPage() {
       toast.error('Sifre gerekli');
       return;
     }
+    if (formData.password && formData.password.length < 6) {
+      toast.error('Sifre en az 6 karakter olmali');
+      return;
+    }
 
     setLoading(true);
 
     try {
+      const functions = getFunctions();
+
       if (editingUser) {
-        // Guncelleme
-        const updateData: Partial<User> & { password?: string } = {
+        // Guncelleme - Firestore'da bilgileri guncelle
+        await updateDoc(doc(db, 'businesses', currentBusiness.id, 'users', editingUser), {
           name: formData.name,
           email: formData.email,
           roles: formData.roles,
           isActive: formData.isActive
-        };
+        });
+
+        // Sifre degistirilecekse Cloud Function kullan
         if (formData.password) {
-          updateData.password = formData.password;
+          const updateUserPassword = httpsCallable(functions, 'updateUserPassword');
+          await updateUserPassword({
+            userId: editingUser,
+            businessId: currentBusiness.id,
+            newPassword: formData.password
+          });
         }
-        await updateUser(currentBusiness.id, editingUser, updateData);
+
         toast.success('Kullanici guncellendi');
       } else {
-        // Yeni kullanici
-        await createUser(currentBusiness.id, {
-          name: formData.name,
+        // Yeni kullanici - Cloud Function kullan
+        const createUser = httpsCallable(functions, 'createUser');
+        await createUser({
           email: formData.email,
           password: formData.password,
+          name: formData.name,
           roles: formData.roles,
-          isActive: formData.isActive,
-          createdBy: user?.id
+          businessId: currentBusiness.id,
+          isActive: formData.isActive
         });
+
         toast.success('Kullanici olusturuldu');
       }
 
       setShowModal(false);
       setEditingUser(null);
       setFormData(initialFormData);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error:', error);
-      toast.error('Islem basarisiz');
+      const firebaseError = error as { message?: string };
+      toast.error(firebaseError.message || 'Islem basarisiz');
     }
 
     setLoading(false);
   };
 
-  const handleEdit = (userData: User & { password?: string }) => {
+  const handleEdit = (userData: User) => {
     setEditingUser(userData.id);
     setFormData({
       name: userData.name,
@@ -169,10 +203,17 @@ export default function AdminPage() {
     }
 
     try {
-      await deleteUser(currentBusiness.id, userId);
+      const functions = getFunctions();
+      const deleteUser = httpsCallable(functions, 'deleteUser');
+      await deleteUser({
+        userId,
+        businessId: currentBusiness.id
+      });
       toast.success('Kullanici silindi');
-    } catch (error) {
-      toast.error('Silme basarisiz');
+    } catch (error: unknown) {
+      console.error('Error:', error);
+      const firebaseError = error as { message?: string };
+      toast.error(firebaseError.message || 'Silme basarisiz');
     }
   };
 
@@ -184,16 +225,25 @@ export default function AdminPage() {
     }
 
     try {
-      await updateUser(currentBusiness.id, userId, { isActive: !currentStatus });
+      await updateDoc(doc(db, 'businesses', currentBusiness.id, 'users', userId), {
+        isActive: !currentStatus
+      });
       toast.success(currentStatus ? 'Kullanici pasif yapildi' : 'Kullanici aktif yapildi');
     } catch (error) {
       toast.error('Guncelleme basarisiz');
     }
   };
 
-  const handleLogout = () => {
-    logout();
-    router.push('/login');
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+      logout();
+      router.push('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+      logout();
+      router.push('/login');
+    }
   };
 
   const handleTableCountUpdate = async () => {
@@ -380,7 +430,7 @@ export default function AdminPage() {
         </div>
       </div>
 
-      {/* Modal */}
+      {/* User Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden">
@@ -414,7 +464,11 @@ export default function AdminPage() {
                   onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
                   className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
                   required
+                  disabled={!!editingUser}
                 />
+                {editingUser && (
+                  <p className="text-xs text-gray-500 mt-1">E-posta degistirilemez</p>
+                )}
               </div>
 
               <div>
@@ -427,6 +481,8 @@ export default function AdminPage() {
                   onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
                   className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
                   required={!editingUser}
+                  minLength={6}
+                  placeholder={editingUser ? 'Degistirmek icin yeni sifre girin' : 'En az 6 karakter'}
                 />
               </div>
 

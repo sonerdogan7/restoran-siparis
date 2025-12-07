@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
-import { createSuperAdmin } from '@/lib/firebaseHelpers';
+import { db, auth } from '@/lib/firebase';
+import { collection, getDocs, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { FiShield, FiUser, FiMail, FiLock, FiCheck } from 'react-icons/fi';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -47,14 +47,34 @@ export default function SetupPage() {
     setLoading(true);
 
     try {
-      await createSuperAdmin(email, password, name);
+      // Firebase Auth ile kullanici olustur
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const uid = userCredential.user.uid;
+
+      // Firestore'a superadmin bilgilerini kaydet (sifre olmadan)
+      await setDoc(doc(db, 'systemUsers', uid), {
+        email,
+        name,
+        roles: ['superadmin'],
+        businessId: 'system',
+        isActive: true,
+        createdAt: serverTimestamp()
+      });
+
       toast.success('Super Admin olusturuldu!');
       setTimeout(() => {
         router.push('/login');
       }, 1500);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error:', error);
-      toast.error('Super Admin olusturulamadi');
+      const firebaseError = error as { code?: string };
+      if (firebaseError.code === 'auth/email-already-in-use') {
+        toast.error('Bu e-posta adresi zaten kullaniliyor');
+      } else if (firebaseError.code === 'auth/weak-password') {
+        toast.error('Sifre cok zayif');
+      } else {
+        toast.error('Super Admin olusturulamadi');
+      }
     }
 
     setLoading(false);
