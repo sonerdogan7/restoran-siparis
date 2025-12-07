@@ -62,12 +62,12 @@ export default function SuperAdminPage() {
   // Yetki kontrolu
   useEffect(() => {
     if (!user) {
-      router.push('/login');
+      router.replace('/login');
       return;
     }
     if (!user.roles.includes('superadmin')) {
       toast.error('Bu sayfaya erisim yetkiniz yok');
-      router.push('/login');
+      router.replace('/login');
     }
   }, [user, router]);
 

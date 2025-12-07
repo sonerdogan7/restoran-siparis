@@ -44,17 +44,17 @@ export default function SelectPanelPage() {
 
   useEffect(() => {
     if (!user) {
-      router.push('/login');
+      router.replace('/login');
       return;
     }
     // Superadmin ise superadmin sayfasina yonlendir
     if (user.roles.includes('superadmin')) {
-      router.push('/superadmin');
+      router.replace('/superadmin');
       return;
     }
     if (!currentBusiness) {
       toast.error('Isletme bilgisi bulunamadi');
-      router.push('/login');
+      router.replace('/login');
     }
   }, [user, currentBusiness, router]);
 

@@ -19,9 +19,9 @@ export default function LoginPage() {
   useEffect(() => {
     if (user) {
       if (user.roles.includes('superadmin')) {
-        router.push('/superadmin');
+        router.replace('/superadmin');
       } else {
-        router.push('/select-panel');
+        router.replace('/select-panel');
       }
     }
   }, [user, router]);
@@ -84,28 +84,28 @@ export default function LoginPage() {
       setUser(user);
       toast.success(`Hos geldin, ${user.name}!`);
 
-      // Yonlendirme
+      // Yonlendirme (replace ile gecmise ekleme)
       if (user.roles.includes('superadmin')) {
-        router.push('/superadmin');
+        router.replace('/superadmin');
       } else if (user.roles.length === 1) {
         // Tek rol varsa direkt o panele git
         switch (user.roles[0]) {
           case 'waiter':
-            router.push('/waiter');
+            router.replace('/waiter');
             break;
           case 'bar':
-            router.push('/bar');
+            router.replace('/bar');
             break;
           case 'kitchen':
-            router.push('/kitchen');
+            router.replace('/kitchen');
             break;
           case 'admin':
-            router.push('/admin');
+            router.replace('/admin');
             break;
         }
       } else {
         // Birden fazla rol varsa secim sayfasina git
-        router.push('/select-panel');
+        router.replace('/select-panel');
       }
     } catch (error) {
       console.error('Login error:', error);

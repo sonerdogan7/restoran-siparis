@@ -19,17 +19,17 @@ export default function BarPage() {
   // Yetki kontrolu
   useEffect(() => {
     if (!user) {
-      router.push('/login');
+      router.replace('/login');
       return;
     }
     if (!user.roles.includes('bar') && !user.roles.includes('admin')) {
       toast.error('Bu sayfaya erisim yetkiniz yok');
-      router.push('/select-panel');
+      router.replace('/select-panel');
       return;
     }
     if (!currentBusiness) {
       toast.error('Isletme bilgisi bulunamadi');
-      router.push('/login');
+      router.replace('/login');
       return;
     }
   }, [user, currentBusiness, router]);
