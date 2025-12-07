@@ -2,7 +2,7 @@
 
 import { Table } from '@/types';
 import { useStore } from '@/store/useStore';
-import { FiUsers, FiCheck } from 'react-icons/fi';
+import { FiUsers, FiCheck, FiAlertCircle } from 'react-icons/fi';
 
 interface TableGridProps {
   tables: Table[];
@@ -22,8 +22,15 @@ export default function TableGrid({ tables, onTableSelect }: TableGridProps) {
     const orders = getTableOrders(tableId);
     let totalItems = 0;
     let readyItems = 0;
+    let oldestOrderTime: Date | null = null;
 
     orders.forEach(order => {
+      // En eski siparis zamanini bul
+      const orderTime = new Date(order.createdAt);
+      if (!oldestOrderTime || orderTime < oldestOrderTime) {
+        oldestOrderTime = orderTime;
+      }
+
       order.items.forEach(item => {
         totalItems += item.quantity;
         if (item.status === 'ready') {
@@ -32,17 +39,50 @@ export default function TableGrid({ tables, onTableSelect }: TableGridProps) {
       });
     });
 
-    return { totalItems, readyItems, orders };
+    return { totalItems, readyItems, orders, oldestOrderTime };
+  };
+
+  // Hazir urunu olan masalari siparis zamanina gore sirala (oncelik icin)
+  const getReadyTablesPriority = () => {
+    const tablesWithReady: { tableId: string; tableNumber: number; oldestOrderTime: Date; readyItems: number }[] = [];
+
+    tables.forEach(table => {
+      if (table.status !== 'occupied') return;
+      const { readyItems, oldestOrderTime } = getTableItemsStatus(table.id);
+      if (readyItems > 0 && oldestOrderTime) {
+        tablesWithReady.push({
+          tableId: table.id,
+          tableNumber: table.number,
+          oldestOrderTime,
+          readyItems
+        });
+      }
+    });
+
+    // En eski siparis once gelecek sekilde sirala
+    tablesWithReady.sort((a, b) => a.oldestOrderTime.getTime() - b.oldestOrderTime.getTime());
+
+    return tablesWithReady;
+  };
+
+  const readyTablesPriority = getReadyTablesPriority();
+
+  // Masanin oncelik sirasini bul (1 = en oncelikli)
+  const getTablePriority = (tableId: string): number | null => {
+    const index = readyTablesPriority.findIndex(t => t.tableId === tableId);
+    return index >= 0 ? index + 1 : null;
   };
 
   return (
     <div className="grid grid-cols-4 md:grid-cols-5 gap-3 p-4">
       {tables.map((table) => {
-        const { totalItems, readyItems, orders } = getTableItemsStatus(table.id);
+        const { totalItems, readyItems, orders, oldestOrderTime } = getTableItemsStatus(table.id);
         const isOccupied = table.status === 'occupied';
         const hasOrders = orders.length > 0;
         const allReady = totalItems > 0 && readyItems === totalItems;
         const someReady = readyItems > 0 && readyItems < totalItems;
+        const priority = getTablePriority(table.id);
+        const isFirstPriority = priority === 1;
 
         return (
           <button
@@ -53,12 +93,32 @@ export default function TableGrid({ tables, onTableSelect }: TableGridProps) {
               transform hover:scale-105 active:scale-95
               ${isOccupied
                 ? allReady
-                  ? 'bg-gradient-to-br from-green-500 to-green-600 text-white'
-                  : 'bg-gradient-to-br from-red-500 to-red-600 text-white'
+                  ? isFirstPriority
+                    ? 'bg-gradient-to-br from-green-400 to-green-500 text-white ring-4 ring-green-300 ring-opacity-50'
+                    : 'bg-gradient-to-br from-green-500 to-green-600 text-white'
+                  : someReady
+                    ? isFirstPriority
+                      ? 'bg-gradient-to-br from-yellow-400 to-yellow-500 text-yellow-900 ring-4 ring-yellow-300 ring-opacity-50'
+                      : 'bg-gradient-to-br from-yellow-500 to-yellow-600 text-yellow-900'
+                    : 'bg-gradient-to-br from-red-500 to-red-600 text-white'
                 : 'bg-gradient-to-br from-gray-400 to-gray-500 text-white'
               }
             `}
           >
+            {/* Oncelik Badge - En oncelikli masa */}
+            {isFirstPriority && readyItems > 0 && (
+              <div className="absolute -top-2 -left-2 bg-red-500 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center animate-pulse">
+                1
+              </div>
+            )}
+
+            {/* Diger oncelik siralari */}
+            {priority && priority > 1 && priority <= 3 && (
+              <div className="absolute -top-1 -left-1 bg-orange-500 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">
+                {priority}
+              </div>
+            )}
+
             {/* Masa Numarasi */}
             <div className="text-2xl font-bold">{table.number}</div>
 
@@ -76,7 +136,7 @@ export default function TableGrid({ tables, onTableSelect }: TableGridProps) {
                 allReady
                   ? 'bg-white/30 text-white'
                   : someReady
-                    ? 'bg-yellow-400 text-yellow-900'
+                    ? 'bg-white/30'
                     : 'bg-white/20 text-white'
               }`}>
                 {allReady ? (
@@ -96,7 +156,7 @@ export default function TableGrid({ tables, onTableSelect }: TableGridProps) {
               </div>
             )}
 
-            {/* Siparis Sayisi Badge */}
+            {/* Siparis Sayisi Badge (birden fazla siparis varsa) */}
             {orders.length > 1 && (
               <div className="absolute -top-1 -right-1 bg-indigo-500 text-white text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">
                 {orders.length}
