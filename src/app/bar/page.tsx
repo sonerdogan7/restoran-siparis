@@ -3,10 +3,59 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { Order } from '@/types';
+import { Order, OrderItem } from '@/types';
 import { subscribeToOrders, updateOrder } from '@/lib/firebaseHelpers';
 import toast, { Toaster } from 'react-hot-toast';
 import { FiCheck, FiClock, FiPrinter, FiVolume2, FiVolumeX, FiArrowLeft, FiLogOut } from 'react-icons/fi';
+
+// Ayni urunleri birlestir (notu olmayanlar)
+interface MergedItem {
+  menuItemId: string;
+  menuItemName: string;
+  totalQuantity: number;
+  items: OrderItem[]; // Orijinal itemlar (hazir isaretlemek icin)
+  hasNotes: boolean;
+  allReady: boolean;
+}
+
+function mergeItems(items: OrderItem[]): MergedItem[] {
+  const merged: Record<string, MergedItem> = {};
+  const withNotes: MergedItem[] = [];
+
+  items.forEach(item => {
+    // Notu olan urunler ayri gosterilir
+    if (item.notes) {
+      withNotes.push({
+        menuItemId: item.menuItem.id,
+        menuItemName: item.menuItem.name,
+        totalQuantity: item.quantity,
+        items: [item],
+        hasNotes: true,
+        allReady: item.status === 'ready'
+      });
+    } else {
+      // Notu olmayan ayni urunleri birlestir
+      const key = item.menuItem.id;
+      if (!merged[key]) {
+        merged[key] = {
+          menuItemId: item.menuItem.id,
+          menuItemName: item.menuItem.name,
+          totalQuantity: 0,
+          items: [],
+          hasNotes: false,
+          allReady: true
+        };
+      }
+      merged[key].totalQuantity += item.quantity;
+      merged[key].items.push(item);
+      if (item.status !== 'ready') {
+        merged[key].allReady = false;
+      }
+    }
+  });
+
+  return [...Object.values(merged), ...withNotes];
+}
 
 export default function BarPage() {
   const router = useRouter();
@@ -72,6 +121,29 @@ export default function BarPage() {
     try {
       await updateOrder(currentBusiness.id, orderId, { items: updatedItems });
       toast.success('Urun hazir olarak isaretlendi');
+    } catch (error) {
+      toast.error('Guncelleme basarisiz');
+    }
+  };
+
+  // Birlestirilmis urunleri hazir isaretle (tum siparislerdeki ayni urunler)
+  const handleMarkMergedItemsReady = async (mergedItem: MergedItem) => {
+    if (!currentBusiness) return;
+
+    try {
+      // Her bir orijinal item icin guncelleme yap
+      for (const item of mergedItem.items) {
+        // Bu item hangi sipariste?
+        const order = orders.find(o => o.items.some(i => i.id === item.id));
+        if (!order) continue;
+
+        const updatedItems = order.items.map(i =>
+          i.id === item.id ? { ...i, status: 'ready' as const } : i
+        );
+
+        await updateOrder(currentBusiness.id, order.id, { items: updatedItems });
+      }
+      toast.success(`${mergedItem.totalQuantity}x ${mergedItem.menuItemName} hazir!`);
     } catch (error) {
       toast.error('Guncelleme basarisiz');
     }
@@ -187,101 +259,139 @@ export default function BarPage() {
             <p className="text-xl text-gray-500">Bekleyen siparis yok</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {orders.map(order => {
-              const barItems = order.items.filter(i => i.menuItem.destination === 'bar');
-              const allReady = barItems.every(i => i.status === 'ready');
-              const pendingCount = barItems.filter(i => i.status !== 'ready').length;
-              const minutes = getTimeSince(order.createdAt);
-              const isUrgent = minutes > 10;
+          (() => {
+            // Tum siparislerden bar urunlerini topla
+            const allBarItems: OrderItem[] = [];
+            orders.forEach(order => {
+              order.items
+                .filter(i => i.menuItem.destination === 'bar')
+                .forEach(item => allBarItems.push(item));
+            });
 
-              return (
-                <div
-                  key={order.id}
-                  className={`bg-white rounded-xl shadow-lg overflow-hidden border-2 ${
-                    allReady ? 'border-green-400' : isUrgent ? 'border-red-400 animate-pulse' : 'border-blue-200'
-                  }`}
-                >
-                  <div className={`p-4 ${
-                    allReady ? 'bg-green-500' : isUrgent ? 'bg-red-500' : 'bg-blue-600'
-                  } text-white`}>
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <span className="text-3xl font-bold">M{order.tableNumber}</span>
-                        <div className="text-sm opacity-90">{order.waiter}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="flex items-center gap-1 text-xl font-bold">
-                          <FiClock />
-                          {minutes}dk
-                        </div>
-                        {pendingCount > 0 && (
-                          <div className="text-sm">{pendingCount} bekliyor</div>
-                        )}
+            // Urunleri birlestir
+            const mergedItems = mergeItems(allBarItems);
+            const pendingMerged = mergedItems.filter(m => !m.allReady);
+            const readyMerged = mergedItems.filter(m => m.allReady);
+
+            // En eski siparisin zamani
+            const oldestOrder = orders.reduce((oldest, order) =>
+              new Date(order.createdAt) < new Date(oldest.createdAt) ? order : oldest
+            , orders[0]);
+            const minutes = getTimeSince(oldestOrder.createdAt);
+            const isUrgent = minutes > 10;
+
+            return (
+              <div className="space-y-4">
+                {/* Ozet Bilgi */}
+                <div className={`p-4 rounded-xl text-white ${isUrgent ? 'bg-red-500' : 'bg-blue-600'}`}>
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <div className="text-2xl font-bold">{pendingMerged.length} Urun Bekliyor</div>
+                      <div className="text-sm opacity-90">
+                        {orders.length} siparis, {[...new Set(orders.map(o => o.tableNumber))].length} masa
                       </div>
                     </div>
-                  </div>
-
-                  <div className="p-4 space-y-2">
-                    {barItems.map(item => (
-                      <div
-                        key={item.id}
-                        className={`flex items-center justify-between p-3 rounded-lg ${
-                          item.status === 'ready'
-                            ? 'bg-green-50 border border-green-200'
-                            : 'bg-yellow-50 border border-yellow-200'
-                        }`}
-                      >
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-xl font-bold ${
-                              item.status === 'ready' ? 'text-green-600' : 'text-yellow-600'
-                            }`}>
-                              {item.quantity}x
-                            </span>
-                            <span className="font-medium">{item.menuItem.name}</span>
-                          </div>
-                          {item.notes && (
-                            <div className="text-xs text-yellow-700 bg-yellow-100 px-2 py-1 rounded mt-1">
-                              Not: {item.notes}
-                            </div>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => handleMarkItemReady(order.id, item.id)}
-                          disabled={item.status === 'ready'}
-                          className={`p-2 rounded-lg ${
-                            item.status === 'ready'
-                              ? 'bg-green-200 text-green-700'
-                              : 'bg-green-500 text-white hover:bg-green-600'
-                          }`}
-                        >
-                          <FiCheck size={20} />
-                        </button>
+                    <div className="text-right">
+                      <div className="flex items-center gap-1 text-xl font-bold">
+                        <FiClock />
+                        {minutes}dk
                       </div>
-                    ))}
-                  </div>
-
-                  <div className="p-4 border-t bg-gray-50 flex gap-2">
-                    <button
-                      onClick={() => handlePrint(order)}
-                      className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium flex items-center justify-center gap-2 hover:bg-gray-300"
-                    >
-                      <FiPrinter /> Yazdir
-                    </button>
-                    {!allReady && (
-                      <button
-                        onClick={() => handleMarkAllReady(order.id)}
-                        className="flex-1 py-3 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600"
-                      >
-                        Tumu Hazir
-                      </button>
-                    )}
+                      <div className="text-sm opacity-90">en eski</div>
+                    </div>
                   </div>
                 </div>
-              );
-            })}
-          </div>
+
+                {/* Bekleyen Urunler */}
+                {pendingMerged.length > 0 && (
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-700 mb-3">Hazirlanacak</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                      {pendingMerged.map((mergedItem, idx) => (
+                        <div
+                          key={`${mergedItem.menuItemId}-${idx}`}
+                          className="bg-white rounded-xl shadow-lg overflow-hidden border-2 border-yellow-300"
+                        >
+                          <div className="p-4 flex items-center justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-3">
+                                <span className="text-3xl font-bold text-yellow-600">
+                                  {mergedItem.totalQuantity}x
+                                </span>
+                                <span className="text-lg font-medium">{mergedItem.menuItemName}</span>
+                              </div>
+                              {mergedItem.hasNotes && mergedItem.items[0]?.notes && (
+                                <div className="text-xs text-yellow-700 bg-yellow-100 px-2 py-1 rounded mt-2">
+                                  Not: {mergedItem.items[0].notes}
+                                </div>
+                              )}
+                              {!mergedItem.hasNotes && mergedItem.items.length > 1 && (
+                                <div className="text-xs text-gray-500 mt-1">
+                                  {mergedItem.items.length} farkli siparis
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => handleMarkMergedItemsReady(mergedItem)}
+                              className="p-3 bg-green-500 text-white rounded-xl hover:bg-green-600"
+                            >
+                              <FiCheck size={24} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Hazir Urunler */}
+                {readyMerged.length > 0 && (
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-700 mb-3">Hazir ({readyMerged.length})</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                      {readyMerged.map((mergedItem, idx) => (
+                        <div
+                          key={`ready-${mergedItem.menuItemId}-${idx}`}
+                          className="bg-green-50 border border-green-200 rounded-lg p-3 text-center"
+                        >
+                          <span className="text-lg font-bold text-green-600">
+                            {mergedItem.totalQuantity}x
+                          </span>
+                          <div className="text-sm text-green-700 truncate">{mergedItem.menuItemName}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Masa Detaylari */}
+                <div>
+                  <h3 className="text-lg font-bold text-gray-700 mb-3">Masa Detaylari</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                    {orders.map(order => {
+                      const barItems = order.items.filter(i => i.menuItem.destination === 'bar');
+                      const pendingCount = barItems.filter(i => i.status !== 'ready').length;
+                      const allReady = pendingCount === 0;
+
+                      return (
+                        <div
+                          key={order.id}
+                          className={`p-3 rounded-lg text-center ${
+                            allReady ? 'bg-green-100 border border-green-300' : 'bg-yellow-100 border border-yellow-300'
+                          }`}
+                        >
+                          <div className="font-bold">M{order.tableNumber}</div>
+                          <div className="text-xs text-gray-600">{barItems.length} urun</div>
+                          {!allReady && (
+                            <div className="text-xs text-yellow-700">{pendingCount} bekliyor</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            );
+          })()
         )}
       </div>
     </div>
