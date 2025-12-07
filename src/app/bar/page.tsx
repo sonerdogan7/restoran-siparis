@@ -1,52 +1,53 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { useStore } from '@/store/useStore';
 import { Order } from '@/types';
-import { db } from '@/lib/firebase';
-import {
-  collection,
-  onSnapshot,
-  query,
-  where,
-  doc,
-  updateDoc,
-  orderBy
-} from 'firebase/firestore';
+import { subscribeToOrders, updateOrder } from '@/lib/firebaseHelpers';
 import toast, { Toaster } from 'react-hot-toast';
-import { FiCheck, FiClock, FiPrinter, FiVolume2, FiVolumeX } from 'react-icons/fi';
+import { FiCheck, FiClock, FiPrinter, FiVolume2, FiVolumeX, FiArrowLeft, FiLogOut } from 'react-icons/fi';
 
 export default function BarPage() {
+  const router = useRouter();
+  const { user, currentBusiness, logout } = useStore();
   const [orders, setOrders] = useState<Order[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const prevOrderCount = useRef(0);
+
+  // Yetki kontrolu
+  useEffect(() => {
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+    if (!user.roles.includes('bar') && !user.roles.includes('admin')) {
+      toast.error('Bu sayfaya erisim yetkiniz yok');
+      router.push('/select-panel');
+      return;
+    }
+    if (!currentBusiness) {
+      toast.error('Isletme bilgisi bulunamadi');
+      router.push('/login');
+      return;
+    }
+  }, [user, currentBusiness, router]);
 
   useEffect(() => {
     audioRef.current = new Audio('/notification.mp3');
   }, []);
 
   useEffect(() => {
-    
+    if (!currentBusiness) return;
 
-    const ordersRef = collection(db, 'orders');
-    const q = query(
-      ordersRef,
-      where('status', '==', 'active'),
-      orderBy('createdAt', 'asc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const ordersData = snapshot.docs.map(d => ({
-        ...d.data(),
-        id: d.id,
-        createdAt: d.data().createdAt?.toDate() || new Date(),
-        updatedAt: d.data().updatedAt?.toDate() || new Date(),
-      })) as Order[];
-
+    const unsubscribe = subscribeToOrders(currentBusiness.id, 'active', (ordersData) => {
+      // Filter orders that have bar items
       const barOrders = ordersData.filter(order =>
         order.items.some(item => item.menuItem.destination === 'bar')
       );
 
+      // Play sound on new order
       if (barOrders.length > prevOrderCount.current && soundEnabled && audioRef.current) {
         audioRef.current.play().catch(() => {});
         toast('Yeni siparis geldi!', { icon: '🔔' });
@@ -57,10 +58,10 @@ export default function BarPage() {
     });
 
     return () => unsubscribe();
-  }, [soundEnabled]);
+  }, [currentBusiness, soundEnabled]);
 
   const handleMarkItemReady = async (orderId: string, itemId: string) => {
-    
+    if (!currentBusiness) return;
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
 
@@ -69,10 +70,7 @@ export default function BarPage() {
     );
 
     try {
-      await updateDoc(doc(db, 'orders', orderId), {
-        items: updatedItems,
-        updatedAt: new Date(),
-      });
+      await updateOrder(currentBusiness.id, orderId, { items: updatedItems });
       toast.success('Urun hazir olarak isaretlendi');
     } catch (error) {
       toast.error('Guncelleme basarisiz');
@@ -80,7 +78,7 @@ export default function BarPage() {
   };
 
   const handleMarkAllReady = async (orderId: string) => {
-    
+    if (!currentBusiness) return;
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
 
@@ -91,10 +89,7 @@ export default function BarPage() {
     );
 
     try {
-      await updateDoc(doc(db, 'orders', orderId), {
-        items: updatedItems,
-        updatedAt: new Date(),
-      });
+      await updateOrder(currentBusiness.id, orderId, { items: updatedItems });
       toast.success('Tum urunler hazir!');
     } catch (error) {
       toast.error('Guncelleme basarisiz');
@@ -125,7 +120,7 @@ export default function BarPage() {
               <div class="info">Garson: ${order.waiter}</div>
               <div class="info">${new Date(order.createdAt).toLocaleTimeString('tr-TR')}</div>
             </div>
-            ${barItems.map(item => '<div class="item"><span class="qty">' + item.quantity + 'x</span> ' + item.menuItem.name + '</div>').join('')}
+            ${barItems.map(item => '<div class="item"><span class="qty">' + item.quantity + 'x</span> ' + item.menuItem.name + (item.notes ? ' (' + item.notes + ')' : '') + '</div>').join('')}
           </body>
         </html>
       `;
@@ -136,9 +131,18 @@ export default function BarPage() {
     }
   };
 
+  const handleLogout = () => {
+    logout();
+    router.push('/login');
+  };
+
   const getTimeSince = (date: Date) => {
     return Math.floor((Date.now() - new Date(date).getTime()) / 60000);
   };
+
+  if (!user || !currentBusiness) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-blue-50">
@@ -146,8 +150,17 @@ export default function BarPage() {
 
       <header className="bg-blue-600 text-white shadow-lg sticky top-0 z-40">
         <div className="flex items-center justify-between px-4 py-4">
-          <h1 className="text-2xl font-bold">BAR PANELI</h1>
-          <div className="flex items-center gap-4">
+          <button
+            onClick={() => router.push('/select-panel')}
+            className="p-2 hover:bg-blue-500 rounded-lg"
+          >
+            <FiArrowLeft size={24} />
+          </button>
+          <div className="text-center flex-1">
+            <h1 className="text-xl font-bold">BAR PANELI</h1>
+            <p className="text-xs opacity-80">{currentBusiness.name}</p>
+          </div>
+          <div className="flex items-center gap-2">
             <span className="bg-blue-500 px-3 py-1 rounded-full text-sm">
               {orders.length} Siparis
             </span>
@@ -156,6 +169,12 @@ export default function BarPage() {
               className="p-2 hover:bg-blue-500 rounded-lg"
             >
               {soundEnabled ? <FiVolume2 size={24} /> : <FiVolumeX size={24} />}
+            </button>
+            <button
+              onClick={handleLogout}
+              className="p-2 hover:bg-blue-500 rounded-lg"
+            >
+              <FiLogOut size={24} />
             </button>
           </div>
         </div>
@@ -213,13 +232,20 @@ export default function BarPage() {
                             : 'bg-yellow-50 border border-yellow-200'
                         }`}
                       >
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xl font-bold ${
-                            item.status === 'ready' ? 'text-green-600' : 'text-yellow-600'
-                          }`}>
-                            {item.quantity}x
-                          </span>
-                          <span className="font-medium">{item.menuItem.name}</span>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xl font-bold ${
+                              item.status === 'ready' ? 'text-green-600' : 'text-yellow-600'
+                            }`}>
+                              {item.quantity}x
+                            </span>
+                            <span className="font-medium">{item.menuItem.name}</span>
+                          </div>
+                          {item.notes && (
+                            <div className="text-xs text-yellow-700 bg-yellow-100 px-2 py-1 rounded mt-1">
+                              Not: {item.notes}
+                            </div>
+                          )}
                         </div>
                         <button
                           onClick={() => handleMarkItemReady(order.id, item.id)}
