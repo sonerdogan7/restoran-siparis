@@ -438,42 +438,74 @@ export default function WaiterPage() {
               Aktif siparisiniz yok
             </div>
           ) : (
-            myActiveOrders.map(order => (
-              <div key={order.id} className="bg-white rounded-xl shadow p-4">
-                <div className="flex justify-between items-center mb-3">
-                  <span className="text-lg font-bold">Masa {order.tableNumber}</span>
-                  <span className="text-sm text-gray-500">
-                    {new Date(order.createdAt).toLocaleTimeString('tr-TR', {
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
-                  </span>
-                </div>
-                <div className="space-y-2">
-                  {order.items.map(item => (
-                    <div key={item.id} className="flex justify-between text-sm">
-                      <span>
-                        <span className="font-medium">{item.quantity}x</span> {item.menuItem.name}
-                        {item.seatNumber && (
-                          <span className="ml-1 text-xs text-indigo-600">({item.seatNumber}. san.)</span>
-                        )}
-                      </span>
-                      <span className={`px-2 py-0.5 rounded text-xs ${
-                        item.status === 'ready'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {item.status === 'ready' ? 'Hazir' : 'Hazirlaniyor'}
-                      </span>
+            // Siparisleri masa bazli grupla
+            (() => {
+              const ordersByTable: Record<number, Order[]> = {};
+              myActiveOrders.forEach(order => {
+                if (!ordersByTable[order.tableNumber]) {
+                  ordersByTable[order.tableNumber] = [];
+                }
+                ordersByTable[order.tableNumber].push(order);
+              });
+
+              return Object.entries(ordersByTable).map(([tableNum, orders]) => {
+                const tableTotal = orders.reduce((sum, o) => sum + o.total, 0);
+                const allItems = orders.flatMap(o =>
+                  o.items.map(item => ({
+                    ...item,
+                    orderTime: o.createdAt
+                  }))
+                );
+
+                return (
+                  <div key={tableNum} className="bg-white rounded-xl shadow p-4">
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-lg font-bold">Masa {tableNum}</span>
+                      <span className="text-xs text-gray-400">{orders.length} siparis</span>
                     </div>
-                  ))}
-                </div>
-                <div className="mt-3 pt-3 border-t flex justify-between items-center">
-                  <span className="text-gray-600">Toplam</span>
-                  <span className="font-bold text-lg">{order.total} TL</span>
-                </div>
-              </div>
-            ))
+
+                    {/* Her siparis saati ile birlikte */}
+                    {orders.map((order, idx) => (
+                      <div key={order.id} className={`${idx > 0 ? 'mt-3 pt-3 border-t border-dashed' : ''}`}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+                            {new Date(order.createdAt).toLocaleTimeString('tr-TR', {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </span>
+                          <span className="text-xs text-gray-400">({order.items.length} urun)</span>
+                        </div>
+                        <div className="space-y-1.5">
+                          {order.items.map(item => (
+                            <div key={item.id} className="flex justify-between text-sm">
+                              <span>
+                                <span className="font-medium">{item.quantity}x</span> {item.menuItem.name}
+                                {item.seatNumber && (
+                                  <span className="ml-1 text-xs text-indigo-600">({item.seatNumber}. san.)</span>
+                                )}
+                              </span>
+                              <span className={`px-2 py-0.5 rounded text-xs ${
+                                item.status === 'ready'
+                                  ? 'bg-green-100 text-green-700'
+                                  : 'bg-yellow-100 text-yellow-700'
+                              }`}>
+                                {item.status === 'ready' ? 'Hazir' : 'Hazirlaniyor'}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+
+                    <div className="mt-3 pt-3 border-t flex justify-between items-center">
+                      <span className="text-gray-600">Masa Toplam</span>
+                      <span className="font-bold text-lg">{tableTotal} TL</span>
+                    </div>
+                  </div>
+                );
+              });
+            })()
           )}
         </div>
       )}
