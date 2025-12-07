@@ -44,14 +44,20 @@ service cloud.firestore {
 
     // Businesses (Isletmeler)
     match /businesses/{businessId} {
-      allow read: if isAuthenticated() && (isSuperAdmin() || isBusinessUser(businessId));
+      // Authenticated kullanicilar isletme listesini gorebilir (login icin gerekli)
+      allow read: if isAuthenticated();
       allow create: if isSuperAdmin();
       allow update: if isSuperAdmin() || isBusinessAdmin(businessId);
       allow delete: if isSuperAdmin();
 
       // Business Users (Kullanicilar)
       match /users/{userId} {
-        allow read: if isAuthenticated() && (isSuperAdmin() || isBusinessUser(businessId));
+        // Kendi kaydini okuyabilir veya admin/superadmin tum kullanicilari gorebilir
+        allow read: if isAuthenticated() && (
+          request.auth.uid == userId ||
+          isSuperAdmin() ||
+          isBusinessUser(businessId)
+        );
         allow create: if isSuperAdmin() || isBusinessAdmin(businessId);
         allow update: if isSuperAdmin() || isBusinessAdmin(businessId) || request.auth.uid == userId;
         allow delete: if isSuperAdmin() || isBusinessAdmin(businessId);

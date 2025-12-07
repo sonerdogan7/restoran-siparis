@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
-import { Business } from '@/types';
+import { Business, User, UserRole } from '@/types';
 import { db } from '@/lib/firebase';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import {
@@ -21,9 +21,18 @@ import {
   FiLogOut,
   FiHome,
   FiUsers,
-  FiShield
+  FiShield,
+  FiTrash2,
+  FiArrowLeft
 } from 'react-icons/fi';
 import toast, { Toaster } from 'react-hot-toast';
+
+const ROLE_LABELS: Record<Exclude<UserRole, 'superadmin'>, { label: string; color: string }> = {
+  admin: { label: 'Admin', color: 'bg-purple-100 text-purple-700' },
+  waiter: { label: 'Garson', color: 'bg-green-100 text-green-700' },
+  bar: { label: 'Bar', color: 'bg-blue-100 text-blue-700' },
+  kitchen: { label: 'Mutfak', color: 'bg-orange-100 text-orange-700' }
+};
 
 interface BusinessFormData {
   name: string;
@@ -35,6 +44,14 @@ interface BusinessFormData {
   adminEmail: string;
   adminPassword: string;
   adminName: string;
+}
+
+interface UserFormData {
+  name: string;
+  email: string;
+  password: string;
+  roles: UserRole[];
+  isActive: boolean;
 }
 
 const initialFormData: BusinessFormData = {
@@ -49,6 +66,14 @@ const initialFormData: BusinessFormData = {
   adminName: ''
 };
 
+const initialUserFormData: UserFormData = {
+  name: '',
+  email: '',
+  password: '',
+  roles: [],
+  isActive: true
+};
+
 export default function SuperAdminPage() {
   const router = useRouter();
   const { user, logout } = useStore();
@@ -57,6 +82,14 @@ export default function SuperAdminPage() {
   const [editingBusiness, setEditingBusiness] = useState<string | null>(null);
   const [formData, setFormData] = useState<BusinessFormData>(initialFormData);
   const [loading, setLoading] = useState(false);
+
+  // Isletme detay state'leri
+  const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
+  const [businessUsers, setBusinessUsers] = useState<User[]>([]);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<string | null>(null);
+  const [userFormData, setUserFormData] = useState<UserFormData>(initialUserFormData);
+  const [userLoading, setUserLoading] = useState(false);
 
   // Yetki kontrolu
   useEffect(() => {
@@ -88,6 +121,29 @@ export default function SuperAdminPage() {
     return () => unsubscribe();
   }, []);
 
+  // Secili isletmenin kullanicilarini dinle
+  useEffect(() => {
+    if (!selectedBusiness) {
+      setBusinessUsers([]);
+      return;
+    }
+
+    const usersRef = collection(db, 'businesses', selectedBusiness.id, 'users');
+    const unsubscribe = onSnapshot(usersRef, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate() || new Date()
+      })) as User[];
+      setBusinessUsers(data);
+    }, (error) => {
+      console.error('Firestore error:', error);
+      toast.error('Kullanicilar yuklenemedi');
+    });
+
+    return () => unsubscribe();
+  }, [selectedBusiness]);
+
   const generateSlug = (name: string) => {
     return name
       .toLowerCase()
@@ -108,7 +164,6 @@ export default function SuperAdminPage() {
 
     try {
       if (editingBusiness) {
-        // Isletme guncelle
         await updateDoc(doc(db, 'businesses', editingBusiness), {
           name: formData.name,
           slug: formData.slug,
@@ -119,7 +174,6 @@ export default function SuperAdminPage() {
         });
         toast.success('Isletme guncellendi');
       } else {
-        // Yeni isletme olustur - Cloud Function kullan
         const functions = getFunctions();
         const createBusinessWithAdmin = httpsCallable(functions, 'createBusinessWithAdmin');
 
@@ -188,10 +242,401 @@ export default function SuperAdminPage() {
     }
   };
 
+  // Kullanici islemleri
+  const handleRoleToggle = (role: UserRole) => {
+    if (role === 'superadmin') return;
+    setUserFormData(prev => ({
+      ...prev,
+      roles: prev.roles.includes(role)
+        ? prev.roles.filter(r => r !== role)
+        : [...prev.roles, role]
+    }));
+  };
+
+  const handleUserSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedBusiness) return;
+
+    if (userFormData.roles.length === 0) {
+      toast.error('En az bir rol secmelisiniz');
+      return;
+    }
+    if (!userFormData.password && !editingUser) {
+      toast.error('Sifre gerekli');
+      return;
+    }
+    if (userFormData.password && userFormData.password.length < 6) {
+      toast.error('Sifre en az 6 karakter olmali');
+      return;
+    }
+
+    setUserLoading(true);
+
+    try {
+      const functions = getFunctions();
+
+      if (editingUser) {
+        await updateDoc(doc(db, 'businesses', selectedBusiness.id, 'users', editingUser), {
+          name: userFormData.name,
+          roles: userFormData.roles,
+          isActive: userFormData.isActive
+        });
+
+        if (userFormData.password) {
+          const updateUserPassword = httpsCallable(functions, 'updateUserPassword');
+          await updateUserPassword({
+            userId: editingUser,
+            businessId: selectedBusiness.id,
+            newPassword: userFormData.password
+          });
+        }
+
+        toast.success('Kullanici guncellendi');
+      } else {
+        const createUser = httpsCallable(functions, 'createUser');
+        await createUser({
+          email: userFormData.email,
+          password: userFormData.password,
+          name: userFormData.name,
+          roles: userFormData.roles,
+          businessId: selectedBusiness.id,
+          isActive: userFormData.isActive
+        });
+
+        toast.success('Kullanici olusturuldu');
+      }
+
+      setShowUserModal(false);
+      setEditingUser(null);
+      setUserFormData(initialUserFormData);
+    } catch (error: unknown) {
+      console.error('Error:', error);
+      const firebaseError = error as { message?: string };
+      toast.error(firebaseError.message || 'Islem basarisiz');
+    }
+
+    setUserLoading(false);
+  };
+
+  const handleEditUser = (userData: User) => {
+    setEditingUser(userData.id);
+    setUserFormData({
+      name: userData.name,
+      email: userData.email,
+      password: '',
+      roles: userData.roles.filter(r => r !== 'superadmin') as UserRole[],
+      isActive: userData.isActive
+    });
+    setShowUserModal(true);
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    if (!selectedBusiness) return;
+
+    if (!confirm('Bu kullaniciyi silmek istediginize emin misiniz?')) {
+      return;
+    }
+
+    try {
+      const functions = getFunctions();
+      const deleteUser = httpsCallable(functions, 'deleteUser');
+      await deleteUser({
+        userId,
+        businessId: selectedBusiness.id
+      });
+      toast.success('Kullanici silindi');
+    } catch (error: unknown) {
+      console.error('Error:', error);
+      const firebaseError = error as { message?: string };
+      toast.error(firebaseError.message || 'Silme basarisiz');
+    }
+  };
+
+  const handleToggleUserActive = async (userId: string, currentStatus: boolean) => {
+    if (!selectedBusiness) return;
+
+    try {
+      await updateDoc(doc(db, 'businesses', selectedBusiness.id, 'users', userId), {
+        isActive: !currentStatus
+      });
+      toast.success(currentStatus ? 'Kullanici pasif yapildi' : 'Kullanici aktif yapildi');
+    } catch (error) {
+      toast.error('Guncelleme basarisiz');
+    }
+  };
+
   if (!user || !user.roles.includes('superadmin')) {
     return null;
   }
 
+  // Isletme detay gorunumu
+  if (selectedBusiness) {
+    return (
+      <div className="min-h-screen bg-gray-100">
+        <Toaster position="top-center" />
+
+        {/* Header */}
+        <header className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg">
+          <div className="flex items-center justify-between px-4 py-4">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setSelectedBusiness(null)}
+                className="p-2 hover:bg-white/20 rounded-lg transition"
+              >
+                <FiArrowLeft size={24} />
+              </button>
+              <div>
+                <h1 className="text-xl font-bold">{selectedBusiness.name}</h1>
+                <p className="text-sm opacity-80">Kullanici Yonetimi</p>
+              </div>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="p-2 hover:bg-white/20 rounded-lg transition"
+            >
+              <FiLogOut size={24} />
+            </button>
+          </div>
+        </header>
+
+        {/* Content */}
+        <div className="p-4">
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-4 mb-6">
+            <div className="bg-white rounded-xl p-4 shadow">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <FiUsers className="text-purple-600" size={24} />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{businessUsers.length}</p>
+                  <p className="text-sm text-gray-500">Kullanici</p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl p-4 shadow">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-green-100 rounded-lg">
+                  <FiCheck className="text-green-600" size={24} />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{businessUsers.filter(u => u.isActive).length}</p>
+                  <p className="text-sm text-gray-500">Aktif</p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl p-4 shadow">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <FiHome className="text-blue-600" size={24} />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{selectedBusiness.tableCount}</p>
+                  <p className="text-sm text-gray-500">Masa</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Add User Button */}
+          <div className="mb-4">
+            <button
+              onClick={() => {
+                setEditingUser(null);
+                setUserFormData(initialUserFormData);
+                setShowUserModal(true);
+              }}
+              className="w-full py-3 bg-purple-500 text-white font-semibold rounded-xl hover:bg-purple-600 transition flex items-center justify-center gap-2"
+            >
+              <FiPlus size={20} />
+              Yeni Kullanici Ekle
+            </button>
+          </div>
+
+          {/* Users List */}
+          <div className="space-y-3">
+            {businessUsers.map(userData => (
+              <div
+                key={userData.id}
+                className={`bg-white rounded-xl p-4 shadow ${!userData.isActive ? 'opacity-60' : ''}`}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="font-semibold text-gray-800">{userData.name}</h3>
+                      {!userData.isActive && (
+                        <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">Pasif</span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-500 mb-2">{userData.email}</p>
+                    <div className="flex flex-wrap gap-1">
+                      {userData.roles.filter(r => r !== 'superadmin').map(role => (
+                        <span
+                          key={role}
+                          className={`text-xs px-2 py-1 rounded ${ROLE_LABELS[role as keyof typeof ROLE_LABELS]?.color || 'bg-gray-100'}`}
+                        >
+                          {ROLE_LABELS[role as keyof typeof ROLE_LABELS]?.label || role}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleToggleUserActive(userData.id, userData.isActive)}
+                      className={`p-2 rounded-lg ${userData.isActive ? 'text-red-500 hover:bg-red-50' : 'text-green-500 hover:bg-green-50'}`}
+                      title={userData.isActive ? 'Pasif Yap' : 'Aktif Yap'}
+                    >
+                      {userData.isActive ? <FiX size={18} /> : <FiCheck size={18} />}
+                    </button>
+                    <button
+                      onClick={() => handleEditUser(userData)}
+                      className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"
+                      title="Duzenle"
+                    >
+                      <FiEdit2 size={18} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteUser(userData.id)}
+                      className="p-2 text-red-500 hover:bg-red-50 rounded-lg"
+                      title="Sil"
+                    >
+                      <FiTrash2 size={18} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {businessUsers.length === 0 && (
+              <div className="text-center py-10 text-gray-500">
+                <FiUsers className="mx-auto mb-3" size={48} />
+                <p>Henuz kullanici yok</p>
+                <p className="text-sm">Yeni kullanici ekleyerek baslayin</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* User Modal */}
+        {showUserModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden">
+              <div className="bg-purple-500 p-4 text-white">
+                <h2 className="text-xl font-bold">
+                  {editingUser ? 'Kullanici Duzenle' : 'Yeni Kullanici'}
+                </h2>
+              </div>
+
+              <form onSubmit={handleUserSubmit} className="p-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Ad Soyad
+                  </label>
+                  <input
+                    type="text"
+                    value={userFormData.name}
+                    onChange={(e) => setUserFormData(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    E-posta
+                  </label>
+                  <input
+                    type="email"
+                    value={userFormData.email}
+                    onChange={(e) => setUserFormData(prev => ({ ...prev, email: e.target.value }))}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
+                    required
+                    disabled={!!editingUser}
+                  />
+                  {editingUser && (
+                    <p className="text-xs text-gray-500 mt-1">E-posta degistirilemez</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Sifre {editingUser && '(bos birakirsaniz degismez)'}
+                  </label>
+                  <input
+                    type="password"
+                    value={userFormData.password}
+                    onChange={(e) => setUserFormData(prev => ({ ...prev, password: e.target.value }))}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
+                    required={!editingUser}
+                    minLength={6}
+                    placeholder={editingUser ? 'Degistirmek icin yeni sifre girin' : 'En az 6 karakter'}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Roller
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {(Object.keys(ROLE_LABELS) as (keyof typeof ROLE_LABELS)[]).map(role => (
+                      <button
+                        key={role}
+                        type="button"
+                        onClick={() => handleRoleToggle(role)}
+                        className={`px-4 py-2 rounded-lg font-medium transition ${
+                          userFormData.roles.includes(role)
+                            ? `${ROLE_LABELS[role].color} ring-2 ring-offset-1`
+                            : 'bg-gray-100 text-gray-600'
+                        }`}
+                      >
+                        {ROLE_LABELS[role].label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="userIsActive"
+                    checked={userFormData.isActive}
+                    onChange={(e) => setUserFormData(prev => ({ ...prev, isActive: e.target.checked }))}
+                    className="w-4 h-4"
+                  />
+                  <label htmlFor="userIsActive" className="text-sm text-gray-700">
+                    Hesap aktif
+                  </label>
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowUserModal(false);
+                      setEditingUser(null);
+                      setUserFormData(initialUserFormData);
+                    }}
+                    className="flex-1 py-3 bg-gray-100 text-gray-700 font-semibold rounded-xl hover:bg-gray-200 transition"
+                  >
+                    Iptal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={userLoading}
+                    className="flex-1 py-3 bg-purple-500 text-white font-semibold rounded-xl hover:bg-purple-600 transition disabled:opacity-50"
+                  >
+                    {userLoading ? 'Kaydediliyor...' : (editingUser ? 'Guncelle' : 'Olustur')}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Ana liste gorunumu
   return (
     <div className="min-h-screen bg-gray-100">
       <Toaster position="top-center" />
@@ -288,7 +733,10 @@ export default function SuperAdminPage() {
               className={`bg-white rounded-xl p-4 shadow ${!business.isActive ? 'opacity-60' : ''}`}
             >
               <div className="flex items-start justify-between">
-                <div className="flex-1">
+                <div
+                  className="flex-1 cursor-pointer"
+                  onClick={() => setSelectedBusiness(business)}
+                >
                   <div className="flex items-center gap-2 mb-1">
                     <h3 className="font-semibold text-gray-800 text-lg">{business.name}</h3>
                     {!business.isActive && (
@@ -310,17 +758,34 @@ export default function SuperAdminPage() {
                       </span>
                     )}
                   </div>
+                  <p className="text-xs text-purple-600 mt-2">Kullanicilari gormek icin tiklayin</p>
                 </div>
                 <div className="flex items-center gap-1">
                   <button
-                    onClick={() => handleToggleActive(business.id, business.isActive)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedBusiness(business);
+                    }}
+                    className="p-2 text-purple-500 hover:bg-purple-50 rounded-lg"
+                    title="Kullanicilar"
+                  >
+                    <FiUsers size={18} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleToggleActive(business.id, business.isActive);
+                    }}
                     className={`p-2 rounded-lg ${business.isActive ? 'text-red-500 hover:bg-red-50' : 'text-green-500 hover:bg-green-50'}`}
                     title={business.isActive ? 'Pasif Yap' : 'Aktif Yap'}
                   >
                     {business.isActive ? <FiX size={18} /> : <FiCheck size={18} />}
                   </button>
                   <button
-                    onClick={() => handleEdit(business)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleEdit(business);
+                    }}
                     className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"
                     title="Duzenle"
                   >
@@ -341,7 +806,7 @@ export default function SuperAdminPage() {
         </div>
       </div>
 
-      {/* Modal */}
+      {/* Business Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-auto">
           <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden my-4">
