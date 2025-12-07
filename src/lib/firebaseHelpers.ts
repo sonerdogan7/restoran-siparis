@@ -175,6 +175,40 @@ export const updateTable = async (
   });
 };
 
+// Masa sayisini guncelle (ekle veya sil)
+export const updateTableCount = async (
+  businessId: string,
+  currentCount: number,
+  newCount: number
+): Promise<void> => {
+  const tablesRef = collection(db, 'businesses', businessId, 'tables');
+
+  if (newCount > currentCount) {
+    // Yeni masalar ekle
+    for (let i = currentCount + 1; i <= newCount; i++) {
+      await setDoc(doc(tablesRef, `table-${i}`), {
+        number: i,
+        status: 'empty',
+        guestCount: 0
+      });
+    }
+  } else if (newCount < currentCount) {
+    // Fazla masalari sil (sadece bos olanlari)
+    for (let i = currentCount; i > newCount; i--) {
+      const tableDoc = await getDoc(doc(tablesRef, `table-${i}`));
+      if (tableDoc.exists()) {
+        const tableData = tableDoc.data();
+        if (tableData.status === 'empty') {
+          await deleteDoc(doc(tablesRef, `table-${i}`));
+        }
+      }
+    }
+  }
+
+  // Business'taki tableCount'u guncelle
+  await updateDoc(doc(db, 'businesses', businessId), { tableCount: newCount });
+};
+
 // ==================== ORDER HELPERS ====================
 
 // Aktif siparisleri dinle

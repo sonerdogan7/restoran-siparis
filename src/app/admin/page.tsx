@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
 import { User, UserRole } from '@/types';
-import { getBusinessUsers, createUser, updateUser, deleteUser } from '@/lib/firebaseHelpers';
+import { getBusinessUsers, createUser, updateUser, deleteUser, updateTableCount } from '@/lib/firebaseHelpers';
 import {
   FiPlus,
   FiEdit2,
@@ -43,12 +43,15 @@ const initialFormData: UserFormData = {
 
 export default function AdminPage() {
   const router = useRouter();
-  const { user, currentBusiness, logout } = useStore();
+  const { user, currentBusiness, setCurrentBusiness, logout } = useStore();
   const [users, setUsers] = useState<(User & { password?: string })[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState<string | null>(null);
   const [formData, setFormData] = useState<UserFormData>(initialFormData);
   const [loading, setLoading] = useState(false);
+  const [showTableSettings, setShowTableSettings] = useState(false);
+  const [newTableCount, setNewTableCount] = useState(currentBusiness?.tableCount || 20);
+  const [tableLoading, setTableLoading] = useState(false);
 
   // Yetki kontrolu
   useEffect(() => {
@@ -193,6 +196,30 @@ export default function AdminPage() {
     router.push('/login');
   };
 
+  const handleTableCountUpdate = async () => {
+    if (!currentBusiness) return;
+    if (newTableCount === currentBusiness.tableCount) {
+      setShowTableSettings(false);
+      return;
+    }
+    if (newTableCount < 1 || newTableCount > 100) {
+      toast.error('Masa sayisi 1-100 arasinda olmali');
+      return;
+    }
+
+    setTableLoading(true);
+    try {
+      await updateTableCount(currentBusiness.id, currentBusiness.tableCount, newTableCount);
+      setCurrentBusiness({ ...currentBusiness, tableCount: newTableCount });
+      toast.success('Masa sayisi guncellendi');
+      setShowTableSettings(false);
+    } catch (error) {
+      console.error('Error updating table count:', error);
+      toast.error('Masa sayisi guncellenemedi');
+    }
+    setTableLoading(false);
+  };
+
   if (!user || !user.roles.includes('admin') || !currentBusiness) {
     return null;
   }
@@ -260,17 +287,23 @@ export default function AdminPage() {
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-xl p-4 shadow">
+          <button
+            onClick={() => {
+              setNewTableCount(currentBusiness.tableCount);
+              setShowTableSettings(true);
+            }}
+            className="bg-white rounded-xl p-4 shadow hover:shadow-md transition cursor-pointer text-left w-full"
+          >
             <div className="flex items-center gap-3">
               <div className="p-2 bg-blue-100 rounded-lg">
                 <FiSettings className="text-blue-600" size={24} />
               </div>
               <div>
                 <p className="text-2xl font-bold">{currentBusiness.tableCount}</p>
-                <p className="text-sm text-gray-500">Masa</p>
+                <p className="text-sm text-gray-500">Masa (Duzenle)</p>
               </div>
             </div>
-          </div>
+          </button>
         </div>
 
         {/* Add User Button */}
@@ -453,6 +486,58 @@ export default function AdminPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Table Settings Modal */}
+      {showTableSettings && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden">
+            <div className="bg-blue-500 p-4 text-white">
+              <h2 className="text-xl font-bold">Masa Sayisi Ayarla</h2>
+            </div>
+
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Masa Sayisi
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={newTableCount}
+                  onChange={(e) => setNewTableCount(parseInt(e.target.value) || 1)}
+                  className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 text-center text-2xl font-bold"
+                />
+                <p className="text-xs text-gray-500 mt-2">
+                  Mevcut: {currentBusiness.tableCount} masa
+                </p>
+                {newTableCount < currentBusiness.tableCount && (
+                  <p className="text-xs text-orange-600 mt-1">
+                    Not: Dolu masalar silinmez, sadece bos masalar kaldirilir.
+                  </p>
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowTableSettings(false)}
+                  className="flex-1 py-3 bg-gray-100 text-gray-700 font-semibold rounded-xl hover:bg-gray-200 transition"
+                >
+                  Iptal
+                </button>
+                <button
+                  onClick={handleTableCountUpdate}
+                  disabled={tableLoading}
+                  className="flex-1 py-3 bg-blue-500 text-white font-semibold rounded-xl hover:bg-blue-600 transition disabled:opacity-50"
+                >
+                  {tableLoading ? 'Kaydediliyor...' : 'Kaydet'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
