@@ -172,7 +172,7 @@ function CartItem({
           >
             <FiMinus size={12} />
           </button>
-          <span className="font-bold w-5 text-center text-xs">{item.quantity}</span>
+          <span className="font-bold w-5 text-center text-xs text-gray-800">{item.quantity}</span>
           <button
             onClick={() => onUpdateQuantity(item.id, item.quantity + 1)}
             className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center"

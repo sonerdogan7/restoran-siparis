@@ -437,16 +437,26 @@ export default function WaiterPage() {
 
             if (tableOrders.length === 0) {
               return (
-                <div className="bg-white rounded-xl p-8 shadow text-center">
-                  <FiPackage size={48} className="mx-auto text-gray-300 mb-3" />
-                  <p className="text-gray-500">Henuz siparis yok</p>
+                <>
+                  <div className="bg-white rounded-xl p-8 shadow text-center">
+                    <FiPackage size={48} className="mx-auto text-gray-300 mb-3" />
+                    <p className="text-gray-500">Henuz siparis yok</p>
+                    <button
+                      onClick={() => setView('order')}
+                      className="mt-4 px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
+                    >
+                      Siparis Ekle
+                    </button>
+                  </div>
+                  {/* Masayi Kapat - Siparis yokken de gorunsun */}
                   <button
-                    onClick={() => setView('order')}
-                    className="mt-4 px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600"
+                    onClick={handleCloseTable}
+                    className="w-full py-3 bg-red-500 text-white font-semibold rounded-xl hover:bg-red-600 transition flex items-center justify-center gap-2"
                   >
-                    Siparis Ekle
+                    <FiX size={18} />
+                    Masayi Kapat
                   </button>
-                </div>
+                </>
               );
             }
 

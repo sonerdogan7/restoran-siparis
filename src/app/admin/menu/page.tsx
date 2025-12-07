@@ -706,7 +706,7 @@ export default function MenuManagementPage() {
                               onClick={() => toggleSubCategory(subCat.id)}
                             >
                               <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium">{subCat.name}</span>
+                                <span className="text-sm font-medium text-gray-800">{subCat.name}</span>
                                 <span className="text-xs text-gray-400">
                                   ({subCat.subSubCategories?.length || 0} alt-alt kategori)
                                 </span>
@@ -752,7 +752,7 @@ export default function MenuManagementPage() {
                                       key={subSubCat.id}
                                       className="flex items-center justify-between bg-white rounded p-2"
                                     >
-                                      <span className="text-xs text-gray-700">{subSubCat.name}</span>
+                                      <span className="text-xs font-medium text-gray-800">{subSubCat.name}</span>
                                       <div className="flex items-center gap-1">
                                         <span className="text-xs text-gray-400 mr-1">
                                           {products.filter(p => p.subSubCategory === subSubCat.id).length} urun
@@ -939,7 +939,7 @@ export default function MenuManagementPage() {
                   type="text"
                   value={categoryForm.name}
                   onChange={(e) => setCategoryForm(prev => ({ ...prev, name: e.target.value }))}
-                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 text-gray-800"
                   placeholder="Ornek: Ana Yemekler"
                   required
                 />
@@ -1030,7 +1030,7 @@ export default function MenuManagementPage() {
                   type="text"
                   value={subCategoryName}
                   onChange={(e) => setSubCategoryName(e.target.value)}
-                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 text-gray-800"
                   placeholder="Ornek: Corbalar"
                   required
                 />
@@ -1321,7 +1321,7 @@ export default function MenuManagementPage() {
                   type="text"
                   value={subSubCategoryName}
                   onChange={(e) => setSubSubCategoryName(e.target.value)}
-                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 text-gray-800"
                   placeholder="Ornek: Kebaplar"
                   required
                 />
